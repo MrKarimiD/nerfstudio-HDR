@@ -51,11 +51,13 @@ class ImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
         if self.camera_type == "equirectangular":
             if self.eval_data is not None:	
                 raise ValueError("Cannot use eval_data with camera_type equirectangular.")
-            pers_size = equirect_utils.compute_resolution_from_equirect(self.data, self.images_per_equirect)
+            pers_size = pers_size_hdr = equirect_utils.compute_resolution_from_equirect(self.data, self.images_per_equirect)
+            if self.hdr_dir is not None:
+                pers_size_hdr = equirect_utils.compute_resolution_from_equirect(self.hdr_dir, self.images_per_equirect)
             CONSOLE.log(f"Generating {self.images_per_equirect} {pers_size} sized images per equirectangular image")
             self.data, perspective_masks, perspective_hdrs = equirect_utils.generate_planar_projections_from_equirectangular(
                 self.data, pers_size, self.images_per_equirect, self.mask_dir, hdr_dir=self.hdr_dir, crop_factor=self.crop_factor, 
-                is_HDR=self.is_HDR
+                is_HDR=self.is_HDR, HDR_planar_image_size=pers_size_hdr
             )
             self.camera_type = "perspective"
 
@@ -84,25 +86,26 @@ class ImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                 )	
                 image_rename_map_paths.update(eval_image_rename_map_paths)
             
-            (self.output_dir / "masks").mkdir(parents=True, exist_ok=True)
-            mask_rename_map_paths = process_data_utils.copy_images(
-                perspective_masks, 
-                image_dir=self.output_dir / "masks", 
-                num_downscales=self.num_downscales, 
-                verbose=self.verbose, 
-                crop_factor=self.crop_factor
-            )
+            if perspective_masks is not None:
+                (self.output_dir / "masks").mkdir(parents=True, exist_ok=True)
+                mask_rename_map_paths = process_data_utils.copy_images(
+                    perspective_masks, 
+                    image_dir=self.output_dir / "masks", 
+                    num_downscales=self.num_downscales, 
+                    verbose=self.verbose, 
+                    crop_factor=self.crop_factor
+                )
 
-            print('perspective_masks', perspective_masks, 'perspective_hdrs:', perspective_hdrs, 'image_dir: ', self.output_dir / "hdrs")
-            (self.output_dir / "hdrs").mkdir(parents=True, exist_ok=True)
-            copied_image_paths = process_data_utils.copy_images(
-                perspective_hdrs, 
-                image_dir=self.output_dir / "hdrs", 
-                verbose=self.verbose, 
-                num_downscales=self.num_downscales, 
-                crop_factor=self.crop_factor,
-                is_HDR = True
-            )
+            if perspective_hdrs is not None:
+                (self.output_dir / "hdrs").mkdir(parents=True, exist_ok=True)
+                copied_image_paths = process_data_utils.copy_images(
+                    perspective_hdrs, 
+                    image_dir=self.output_dir / "hdrs", 
+                    verbose=self.verbose, 
+                    num_downscales=self.num_downscales, 
+                    crop_factor=self.crop_factor,
+                    is_HDR = True
+                )
 
             image_rename_map = dict((a.name, b.name) for a, b in image_rename_map_paths.items())
             num_frames = len(image_rename_map)
@@ -122,10 +125,14 @@ class ImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                 raise RuntimeError("No usable images in the data folder.")
             summary_log.append(f"Starting with {num_frames} images")
 
+        image_rename_map = None
         # Run COLMAP
         if not self.skip_colmap:
             require_cameras_exist = True
-            self._run_colmap(mask_path=(self.output_dir / "masks"))
+            if perspective_masks is not None:
+                self._run_colmap(mask_path=(self.output_dir / "masks"))
+            else:
+                self._run_colmap()
             # Colmap uses renamed images
             image_rename_map = None
 
@@ -139,8 +146,8 @@ class ImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
         summary_log += self._save_transforms(
             num_frames,
             image_id_to_depth_path,
-            (self.output_dir / "masks"),
-            (self.output_dir / "hdrs"),
+            (self.output_dir / "masks") if perspective_masks is not None else None,
+            (self.output_dir / "hdrs") if perspective_hdrs is not None else None,
             image_rename_map,
             self.is_HDR
         )

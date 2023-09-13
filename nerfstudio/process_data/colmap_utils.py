@@ -433,8 +433,10 @@ def colmap_to_json(
         
         if image_rename_map is not None:
             name = image_rename_map[name]
-        if is_HDR: 
-            hdr_name = name.replace('.png', '.exr')
+        if camera_hdr_path is not None:
+            hdr_name = name
+            if is_HDR: 
+                hdr_name = hdr_name.replace('.png', '.exr')
             name = Path(camera_hdr_path.absolute() / hdr_name)
         else:
             name = Path(f"./images/{name}")

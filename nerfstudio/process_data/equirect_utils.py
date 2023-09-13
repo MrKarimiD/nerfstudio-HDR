@@ -123,6 +123,7 @@ def generate_planar_projections_from_equirectangular(
     hdr_dir: Path,
     crop_factor: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
     is_HDR: bool = False,
+    HDR_planar_image_size: Tuple[int, int] = (None, None),
 ) -> Path:
     """Generate planar projections from an equirectangular image.
 
@@ -179,17 +180,22 @@ def generate_planar_projections_from_equirectangular(
                 yaw_pitch_pairs.append((i, bound_arr[0]))
 
     equi2pers = Equi2Pers(height=planar_image_size[1], width=planar_image_size[0], fov_x=fov, mode="bilinear")
+    equi2pers_hdr = Equi2Pers(height=HDR_planar_image_size[1], width=HDR_planar_image_size[0], fov_x=fov, mode="bilinear")
     frame_dir = image_dir
     output_dir = image_dir / "planar_projections"
     output_dir.mkdir(exist_ok=True)
     
+    output_mask_dir = None
     if mask_dir is not None:
         output_mask_dir = image_dir / "mask_planar_projections"
         output_mask_dir.mkdir(exist_ok=True)
 
+    output_hdr_dir = None
     if hdr_dir is not None:
         output_hdr_dir = image_dir / "hdr_planar_projections"
         output_hdr_dir.mkdir(exist_ok=True)
+    else:
+        equi2pers_hdr = equi2pers
     
     num_ims = len(os.listdir(frame_dir))
     progress = Progress(
@@ -223,7 +229,12 @@ def generate_planar_projections_from_equirectangular(
                 if hdr_dir is not None:
                     hdr_addr = os.path.join(hdr_dir, i)
                     if is_HDR:
-                        hdr_addr = hdr_addr.replace('.png', '.exr')
+                        if hdr_addr.endswith('.png'):
+                            hdr_addr = hdr_addr.replace('.png', '.exr')
+                        elif hdr_addr.endswith('.jpg'):
+                            hdr_addr = hdr_addr.replace('.jpg', '.exr')
+                        else:
+                            raise Exception("Image format for " + i + " is not supported!!!")
                     if not os.path.isfile(hdr_addr):
                         raise Exception("The corresponding HDR for " + i + " does not exist!!!")
                     hdr = np.array(cv2.imread(hdr_addr, cv2.IMREAD_UNCHANGED)).astype("float32")
@@ -235,9 +246,11 @@ def generate_planar_projections_from_equirectangular(
                     v_rad = torch.pi * v_deg / 180.0
                     u_rad = torch.pi * u_deg / 180.0
                     pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad})
-                    pers_mask = equi2pers(mask, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}) * 255.0
-                    pers_hdr = equi2pers(hdr, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}, clip_output=False)
-                    assert isinstance(pers_image, torch.Tensor) and isinstance(pers_mask, torch.Tensor) and isinstance(pers_hdr, torch.Tensor)
+                    if mask_dir is not None:
+                        pers_mask = equi2pers_hdr(mask, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}) * 255.0
+                    if hdr_dir is not None:
+                        pers_hdr = equi2pers_hdr(hdr, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}, clip_output=False)
+                    assert isinstance(pers_image, torch.Tensor)
                     if i.lower().endswith((".exr")):
                         # normalize alpha channel
                         pers_image = (pers_image.permute(1, 2, 0)).type(torch.float32).to("cpu").numpy()
@@ -247,11 +260,18 @@ def generate_planar_projections_from_equirectangular(
                         pers_image = (pers_image.permute(1, 2, 0)).type(torch.uint8).to("cpu").numpy()
                         cv2.imwrite(f"{output_dir}/{i[:-4]}_{count}.png", pers_image)
                     
-                    pers_mask = (pers_mask.permute(1, 2, 0))[:, :, 0].type(torch.uint8).to("cpu").numpy()
-                    cv2.imwrite(f"{output_mask_dir}/{i[:-4]}_{count}.png", pers_mask)
+                    if mask_dir is not None:
+                        assert isinstance(pers_mask, torch.Tensor)
+                        pers_mask = (pers_mask.permute(1, 2, 0))[:, :, 0].type(torch.uint8).to("cpu").numpy()
+                        cv2.imwrite(f"{output_mask_dir}/{i[:-4]}_{count}.png", pers_mask)
 
-                    pers_hdr = (pers_hdr.permute(1, 2, 0)).type(torch.float32).to("cpu").numpy()
-                    cv2.imwrite(f"{output_hdr_dir}/{i[:-4]}_{count}.exr", pers_hdr)
+                    if hdr_dir is not None:
+                        assert isinstance(pers_hdr, torch.Tensor)
+                        pers_hdr = (pers_hdr.permute(1, 2, 0)).type(torch.float32).to("cpu").numpy()
+                        if is_HDR:
+                            cv2.imwrite(f"{output_hdr_dir}/{i[:-4]}_{count}.exr", pers_hdr)
+                        else:
+                            cv2.imwrite(f"{output_hdr_dir}/{i[:-4]}_{count}.png", pers_hdr)
                     
                     count += 1
 
@@ -262,6 +282,7 @@ def generate_planar_projections_from_equirectangular_2(
     image_dir: Path,
     planar_image_size: Tuple[int, int],
     samples_per_im: int,
+    mask_dir: Path = None,
     crop_factor: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
 ) -> Path:
     """Given camera pose, generate planar projections from an equirectangular image.
@@ -335,7 +356,6 @@ def generate_planar_projections_from_equirectangular_2(
         ItersPerSecColumn(suffix="equirect frames/s"),
         TimeRemainingColumn(elapsed_when_finished=True, compact=True),
     )
-
     
     frames = []
     idx = 0
@@ -352,17 +372,24 @@ def generate_planar_projections_from_equirectangular_2(
                     im = torch.permute(im, (2, 0, 1)) / 255.0
                 count = 0
                 current_pano_camera_pose = np.array(camera_to_worlds_panos[idx])
+                # Convert from COLMAP's camera coordinate system (OpenCV) to ours (OpenGL)
+                current_pano_camera_pose[0:3, 1:3] *= -1
+                current_pano_camera_pose = current_pano_camera_pose[np.array([1, 0, 2, 3]), :]
+                current_pano_camera_pose[2, :] *= -1
+                
                 current_pano_camera_rotation = current_pano_camera_pose[:3, :3]
                 for u_deg, v_deg in yaw_pitch_pairs:
                     v_rad = torch.pi * v_deg / 180.0
                     u_rad = torch.pi * u_deg / 180.0
                     pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad})
+                    if mask_dir is not None:
+                        pers_mask = equi2pers(mask, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}) * 255.0
                     # transform matrix for blender: object.matrix_world 
                     perspective_camera_rotation = inv(Rotation.from_euler('XYZ', [v_rad, -u_rad, 0], degrees=False).as_matrix())
                     perspective_camera_rotation = current_pano_camera_rotation @  perspective_camera_rotation
                     perspective_camera_pose = current_pano_camera_pose.copy()
                     perspective_camera_pose[:3, :3] = perspective_camera_rotation
-       
+
                     assert isinstance(pers_image, torch.Tensor)
                     if i.lower().endswith((".exr")):
                         # normalize alpha channel
