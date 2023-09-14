@@ -19,44 +19,38 @@ Put all the method implementations in one location.
 from __future__ import annotations
 
 from collections import OrderedDict
-from dataclasses import dataclass, field
 from typing import Dict
+from dataclasses import dataclass, field
 
 import tyro
-from lantern.config import lantern_config
 
 from nerfstudio.cameras.camera_optimizers import CameraOptimizerConfig
 from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.configs.external_methods import get_external_methods
-from nerfstudio.data.datamanagers.base_datamanager import (
-    HDRVanillaDataManagerConfig, VanillaDataManager, VanillaDataManagerConfig)
-from nerfstudio.data.datamanagers.random_cameras_datamanager import \
-    RandomCamerasDataManagerConfig
-from nerfstudio.data.dataparsers.blender_dataparser import \
-    BlenderDataParserConfig
+
+from nerfstudio.data.datamanagers.random_cameras_datamanager import RandomCamerasDataManagerConfig
+from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager, VanillaDataManagerConfig
+
+from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConfig
 from nerfstudio.data.dataparsers.dnerf_dataparser import DNeRFDataParserConfig
-from nerfstudio.data.dataparsers.instant_ngp_dataparser import \
-    InstantNGPDataParserConfig
-from nerfstudio.data.dataparsers.nerfstudio_dataparser import \
-    NerfstudioDataParserConfig
-from nerfstudio.data.dataparsers.phototourism_dataparser import \
-    PhototourismDataParserConfig
-from nerfstudio.data.dataparsers.sdfstudio_dataparser import \
-    SDFStudioDataParserConfig
-from nerfstudio.data.dataparsers.sitcoms3d_dataparser import \
-    Sitcoms3DDataParserConfig
+from nerfstudio.data.dataparsers.instant_ngp_dataparser import InstantNGPDataParserConfig
+from nerfstudio.data.dataparsers.nerfstudio_dataparser import NerfstudioDataParserConfig
+from nerfstudio.data.dataparsers.phototourism_dataparser import PhototourismDataParserConfig
+from nerfstudio.data.dataparsers.sdfstudio_dataparser import SDFStudioDataParserConfig
+from nerfstudio.data.dataparsers.sitcoms3d_dataparser import Sitcoms3DDataParserConfig
 from nerfstudio.data.datasets.depth_dataset import DepthDataset
-from nerfstudio.data.datasets.hdr_dataset import HDRInputDataset
 from nerfstudio.data.datasets.sdf_dataset import SDFDataset
 from nerfstudio.data.datasets.semantic_dataset import SemanticDataset
-from nerfstudio.engine.optimizers import (AdamOptimizerConfig,
-                                          RAdamOptimizerConfig)
-from nerfstudio.engine.schedulers import (CosineDecaySchedulerConfig,
-                                          ExponentialDecaySchedulerConfig,
-                                          MultiStepSchedulerConfig)
+from nerfstudio.data.datasets.hdr_dataset import HDRInputDataset
+
+from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConfig
+from nerfstudio.engine.schedulers import (
+    CosineDecaySchedulerConfig,
+    ExponentialDecaySchedulerConfig,
+    MultiStepSchedulerConfig,
+)
 from nerfstudio.engine.trainer import TrainerConfig
-from nerfstudio.field_components.temporal_distortions import \
-    TemporalDistortionKind
+from nerfstudio.field_components.temporal_distortions import TemporalDistortionKind
 from nerfstudio.fields.sdf_field import SDFFieldConfig
 from nerfstudio.models.depth_nerfacto import DepthNerfactoModelConfig
 from nerfstudio.models.generfacto import GenerfactoModelConfig
@@ -71,6 +65,8 @@ from nerfstudio.models.vanilla_nerf import NeRFModel, VanillaModelConfig
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 from nerfstudio.pipelines.dynamic_batch import DynamicBatchPipelineConfig
 from nerfstudio.plugins.registry import discover_methods
+
+from nerfstudio.lantern.config import Get_lantern_config
 
 method_configs: Dict[str, TrainerConfig] = {}
 descriptions = {
@@ -125,7 +121,7 @@ method_configs["nerfacto"] = TrainerConfig(
     vis="viewer",
 )
 
-method_configs["lantern-nerfacto"] = lantern_config
+method_configs["lantern-nerfacto"] = Get_lantern_config()
 
 method_configs["nerfacto-big"] = TrainerConfig(
     method_name="nerfacto",
