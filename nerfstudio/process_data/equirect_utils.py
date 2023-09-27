@@ -272,6 +272,197 @@ def generate_planar_projections_from_equirectangular(
 
     return output_dir, output_mask_dir, output_hdr_dir
 
+
+def generate_planar_projections_from_equirectangular_with_two_exposures(
+    image_dir: Path,
+    planar_image_size: Tuple[int, int],
+    samples_per_im: int,
+    mask_e1_dir: Path,
+    mask_e2_dir: Path,
+    e1_dir: Path,
+    e2_dir: Path,
+    e1_factor: float,
+    e2_factor: float,
+    crop_factor: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
+) -> Path:
+    """Generate planar projections from an equirectangular image.
+
+    Args:
+        image_dir: The directory containing the equirectangular image.
+        planar_image_size: The size of the planar projections [width, height].
+        samples_per_im: The number of samples to take per image.
+        crop_factor: The portion of the image to crop from the (top, bottom, left, and right).
+                    Values should be in [0, 1].
+    returns:
+        The path to the planar projections directory.
+    """
+
+    for i in crop_factor:
+        if i < 0 or i > 1:
+            CONSOLE.print("[bold red] Invalid crop factor. All values must be in [0,1].")
+            sys.exit(1)
+
+    device = torch.device("cuda")
+
+    fov = 120
+    yaw_pitch_pairs = []
+    left_bound, right_bound = -180, 180
+    if crop_factor[3] > 0:
+        left_bound = -180 + 360 * crop_factor[3]
+    if crop_factor[2] > 0:
+        right_bound = 180 - 360 * crop_factor[2]
+
+    if samples_per_im == 8:
+        fov = 120
+        bound_arr = [-45, 0, 45]
+        bound_arr = _crop_bound_arr_vertical(bound_arr, fov, crop_factor)
+        if bound_arr[1] is not None:
+            for i in np.arange(left_bound, right_bound, 90):
+                yaw_pitch_pairs.append((i, bound_arr[1]))
+        if bound_arr[2] is not None:
+            for i in np.arange(left_bound, right_bound, 180):
+                yaw_pitch_pairs.append((i, bound_arr[2]))
+        if bound_arr[0] is not None:
+            for i in np.arange(left_bound, right_bound, 180):
+                yaw_pitch_pairs.append((i, bound_arr[0]))
+    elif samples_per_im == 14:
+        fov = 110
+        bound_arr = [-45, 0, 45]
+        bound_arr = _crop_bound_arr_vertical(bound_arr, fov, crop_factor)
+        if bound_arr[1] is not None:
+            for i in np.arange(left_bound, right_bound, 60):
+                yaw_pitch_pairs.append((i, bound_arr[1]))
+        if bound_arr[2] is not None:
+            for i in np.arange(left_bound, right_bound, 90):
+                yaw_pitch_pairs.append((i, bound_arr[2]))
+        if bound_arr[0] is not None:
+            for i in np.arange(left_bound, right_bound, 90):
+                yaw_pitch_pairs.append((i, bound_arr[0]))
+
+    equi2pers = Equi2Pers(height=planar_image_size[1], width=planar_image_size[0], fov_x=fov, mode="bilinear")
+    frame_dir = image_dir
+    output_dir = image_dir / "planar_projections"
+    output_dir.mkdir(exist_ok=True)
+    
+    output_mask_e1_dir = image_dir / "mask_e1_planar_projections"
+    output_mask_e1_dir.mkdir(exist_ok=True)
+
+    output_mask_e2_dir = image_dir / "mask_e2_planar_projections"
+    output_mask_e2_dir.mkdir(exist_ok=True)
+
+    output_e1_dir = image_dir / "e1_planar_projections"
+    output_e1_dir.mkdir(exist_ok=True)
+
+    output_e2_dir = image_dir / "e2_planar_projections"
+    output_e2_dir.mkdir(exist_ok=True)
+    
+    num_ims = len(os.listdir(frame_dir))
+    progress = Progress(
+        TextColumn("[bold blue]Generating Planar Images", justify="right"),
+        BarColumn(),
+        TaskProgressColumn(show_speed=True),
+        ItersPerSecColumn(suffix="equirect frames/s"),
+        TimeRemainingColumn(elapsed_when_finished=True, compact=True),
+    )
+
+    with progress:
+        for i in progress.track(os.listdir(frame_dir), description="", total=num_ims):
+            if i.lower().endswith((".jpg", ".png", ".jpeg")):
+                im = np.array(cv2.imread(os.path.join(frame_dir, i)))
+                im = torch.tensor(im, dtype=torch.float32, device=device)
+                im = torch.permute(im, (2, 0, 1))
+                im /=255.0
+
+                mask_e1_addr = os.path.join(mask_e1_dir, i)
+                mask_e1_addr = mask_e1_addr.replace('.png', '_e1.png')
+                if not os.path.isfile(mask_e1_addr):
+                    raise Exception("The corresponding mask E1 for " + i + " does not exist!!!")
+                mask_e1 = np.array(cv2.imread(mask_e1_addr))
+                mask_e1 = torch.tensor(mask_e1, dtype=torch.uint8, device=device)
+                mask_e1 = torch.permute(mask_e1, (2, 0, 1))
+
+                mask_e2_addr = os.path.join(mask_e2_dir, i)
+                mask_e2_addr = mask_e2_addr.replace('.png', '_e2.png')
+                if not os.path.isfile(mask_e2_addr):
+                    raise Exception("The corresponding mask E2 for " + i + " does not exist!!!")
+                mask_e2 = np.array(cv2.imread(mask_e2_addr))
+                mask_e2 = torch.tensor(mask_e2, dtype=torch.uint8, device=device)
+                mask_e2 = torch.permute(mask_e2, (2, 0, 1))
+
+                e1_addr = os.path.join(e1_dir, i)
+                if e1_addr.endswith('.png'):
+                    e1_addr = e1_addr.replace('.png', '.exr')
+                elif e1_addr.endswith('.jpg'):
+                    e1_addr = e1_addr.replace('.jpg', '.exr')
+                else:
+                    raise Exception("Image format for " + i + " is not supported!!!")
+                e1_addr = e1_addr.replace('.exr', '_e1.exr')
+                if not os.path.isfile(e1_addr):
+                    raise Exception("The corresponding e1 for " + i + " does not exist!!!")
+                e1 = np.array(cv2.imread(e1_addr, cv2.IMREAD_UNCHANGED)).astype("float32")
+                e1 = e1 / e1_factor
+                e1 = torch.tensor(e1, dtype=torch.float32, device=device)
+                e1 = torch.permute(e1, (2, 0, 1))
+
+                e2_addr = os.path.join(e2_dir, i)
+                if e2_addr.endswith('.png'):
+                    e2_addr = e2_addr.replace('.png', '.exr')
+                elif e2_addr.endswith('.jpg'):
+                    e2_addr = e2_addr.replace('.jpg', '.exr')
+                else:
+                    raise Exception("Image format for " + i + " is not supported!!!")
+                e2_addr = e2_addr.replace('.exr', '_e2.exr')
+                if not os.path.isfile(e2_addr):
+                    raise Exception("The corresponding e1 for " + i + " does not exist!!!")
+                # e2 = np.array(cv2.imread(e2_addr, cv2.IMREAD_UNCHANGED)).astype("float32")
+                e2 = np.array(cv2.imread(e2_addr, cv2.IMREAD_UNCHANGED) * 255.0).astype("uint8")
+                e2 = torch.tensor(e2, dtype=torch.float32, device=device)
+                e2 = e2 / 255.0
+                e2 = e2 / e2_factor
+                e2 = torch.permute(e2, (2, 0, 1))
+
+                count = 0
+                for u_deg, v_deg in yaw_pitch_pairs:
+                    v_rad = torch.pi * v_deg / 180.0
+                    u_rad = torch.pi * u_deg / 180.0
+                    pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad})
+                    pers_mask_e1 = equi2pers(mask_e1, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad})
+                    pers_mask_e2 = equi2pers(mask_e2, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad})
+                    pers_e1 = equi2pers(e1, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}, clip_output=False)
+                    pers_e2 = equi2pers(e2, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}, clip_output=False)
+
+                    assert isinstance(pers_image, torch.Tensor)
+                    if i.lower().endswith((".exr")):
+                        # normalize alpha channel
+                        pers_image = (pers_image.permute(1, 2, 0)).type(torch.float32).to("cpu").numpy()
+                        cv2.imwrite(f"{output_dir}/{i[:-4]}_{count}.exr", pers_image)
+                    else:
+                        pers_image *= 255.0
+                        pers_image = (pers_image.permute(1, 2, 0)).type(torch.uint8).to("cpu").numpy()
+                        cv2.imwrite(f"{output_dir}/{i[:-4]}_{count}.png", pers_image)
+                    
+                    assert isinstance(pers_mask_e1, torch.Tensor)
+                    pers_mask_e1 = (pers_mask_e1.permute(1, 2, 0))[:, :, 0].type(torch.uint8).to("cpu").numpy()
+                    cv2.imwrite(f"{output_mask_e1_dir}/{i[:-4]}_{count}.png", pers_mask_e1)
+
+                    assert isinstance(pers_mask_e2, torch.Tensor)
+                    pers_mask_e2 = (pers_mask_e2.permute(1, 2, 0))[:, :, 0].type(torch.uint8).to("cpu").numpy()
+                    cv2.imwrite(f"{output_mask_e2_dir}/{i[:-4]}_{count}.png", pers_mask_e2)
+
+                    assert isinstance(pers_e1, torch.Tensor)
+                    pers_e1 = (pers_e1.permute(1, 2, 0)).type(torch.float32).to("cpu").numpy()
+                    cv2.imwrite(f"{output_e1_dir}/{i[:-4]}_{count}.exr", pers_e1)
+
+                    assert isinstance(pers_e2, torch.Tensor)
+                    pers_e2 = (pers_e2.permute(1, 2, 0)).type(torch.float32).to("cpu").numpy()
+                    cv2.imwrite(f"{output_e2_dir}/{i[:-4]}_{count}.exr", pers_e2)
+                    
+                    count += 1
+
+    return output_dir, output_e1_dir, output_e2_dir, output_mask_e1_dir, output_mask_e2_dir
+
+
+
 def generate_planar_projections_from_equirectangular_GT(
     metadata_path: Path,
     image_dir: Path,

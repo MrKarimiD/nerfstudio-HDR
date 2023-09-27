@@ -109,6 +109,46 @@ class ColmapConverterToNerfstudioDataset(BaseConverterToNerfstudioDataset):
     def absolute_colmap_path(self) -> Path:
         return self.output_dir / "colmap"
 
+    
+    def _save_transforms_multiple_exposures(
+        self,
+        num_frames: int,
+        mask1_path: Path,
+        mask2_path: Path,
+        e1_path: Path,
+        e2_path: Path,
+        image_rename_map: Optional[Dict[str, str]] = None,
+    ) -> List[str]:
+        """Save colmap transforms into the output folder
+
+        Args:
+            image_id_to_depth_path: When including sfm-based depth, embed these depth file paths in the exported json
+            image_rename_map: Use these image names instead of the names embedded in the COLMAP db
+        """
+        summary_log = []
+        if (self.absolute_colmap_model_path / "cameras.bin").exists():
+            with CONSOLE.status("[bold yellow]Saving results to transforms.json", spinner="balloon"):
+                num_matched_frames = colmap_utils.colmap_to_json_for_different_Exposure(
+                    recon_dir=self.absolute_colmap_model_path,
+                    output_dir=self.output_dir,
+                    mask1_path=mask1_path,
+                    mask2_path=mask2_path,
+                    e1_path=e1_path,
+                    e2_path=e2_path,
+                    image_rename_map=image_rename_map,
+                )
+                summary_log.append(f"Colmap matched {num_matched_frames} images")
+            summary_log.append(colmap_utils.get_matching_summary(num_frames, num_matched_frames))
+
+        else:
+            CONSOLE.log(
+                "[bold yellow]Warning: Could not find existing COLMAP results. " "Not generating transforms.json"
+            )
+        return summary_log
+    
+
+    
+    
     def _save_transforms(
         self,
         num_frames: int,

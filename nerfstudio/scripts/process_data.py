@@ -39,6 +39,9 @@ from nerfstudio.process_data.colmap_converter_to_nerfstudio_dataset import (
 from nerfstudio.process_data.images_to_nerfstudio_dataset import (
     ImagesToNerfstudioDataset,
 )
+from nerfstudio.process_data.lantern_images_to_nerfstudio_dataset import (
+    LanternImagesToNerfstudioDataset,
+)
 from nerfstudio.process_data.aligned_pano2plane import (
     ProcessAlignedPano
 )
@@ -402,6 +405,7 @@ Commands = Union[
     Annotated[ProcessRealityCapture, tyro.conf.subcommand(name="realitycapture")],
     Annotated[ProcessRecord3D, tyro.conf.subcommand(name="record3d")],
     Annotated[ProcessAlignedPano, tyro.conf.subcommand(name="aligned_pano2plane")],
+    Annotated[LanternImagesToNerfstudioDataset, tyro.conf.subcommand(name="lantern")],
 ]
 
 
