@@ -341,6 +341,10 @@ def generate_planar_projections_from_equirectangular_GT(
     idx = 0
     files_list = [file for file in os.listdir(frame_dir) 
          if os.path.isfile(os.path.join(frame_dir, file))]
+    # Sort file by the number, instead by default os.listdir
+    str_2_idx_sort_func = lambda x: int(x.split(".")[0].split("_")[-1])
+    files_list = sorted(files_list, key=str_2_idx_sort_func)
+    
     num_ims = len(files_list)
     with progress:
         for i in progress.track(files_list, description="", total=num_ims):

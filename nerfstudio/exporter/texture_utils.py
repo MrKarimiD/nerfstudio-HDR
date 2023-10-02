@@ -432,7 +432,7 @@ def export_textured_mesh(
         "d 1.0",
         "illum 2",
         "Ns 1.00000000",
-        "map_Kd material_0.png",
+        "map_Kd material_0.exr",
     ]
     lines_mtl = [line + "\n" for line in lines_mtl]
     file_mtl = open(output_dir / "material_0.mtl", "w", encoding="utf-8")
@@ -495,7 +495,7 @@ def export_textured_mesh(
     summary_log.append(f"OBJ file saved to {output_dir / 'mesh.obj'}")
     summary_log.append(f"MTL file saved to {output_dir / 'material_0.mtl'}")
     summary_log.append(
-        f"Texture image saved to {output_dir / 'material_0.png'} "
+        f"Texture image saved to {output_dir / 'material_0.exr'} "
         f"with resolution {texture_image.shape[1]}x{texture_image.shape[0]} (WxH)"
     )
 

@@ -102,18 +102,25 @@ class RGBRenderer(nn.Module):
             comp_rgb = torch.sum(weights * rgb, dim=-2)
             accumulated_weight = torch.sum(weights, dim=-2)
 
-        if background_color == "random":
+        if BACKGROUND_COLOR_OVERRIDE is not None:
+            # This case must be before the others or the override is not properly applied
+            background_color = cls.get_background_color(
+                BACKGROUND_COLOR_OVERRIDE, shape=comp_rgb.shape, device=comp_rgb.device
+            )
+        elif background_color == "random":
             # If background color is random, the predicted color is returned without blending,
             # as if the background color was black.
             return comp_rgb
-
+        
         elif background_color == "last_sample":
             # Note, this is only supported for non-packed samples.
             background_color = rgb[..., -1, :]
-        else:
-            background_color = cls.get_background_color(background_color, shape=comp_rgb.shape, device=comp_rgb.device)
+
+        elif isinstance(background_color, list) and len(background_color) == 3:
+            background_color = torch.FloatTensor(background_color)
         assert isinstance(background_color, torch.Tensor)
-        comp_rgb = comp_rgb + background_color * (1.0 - accumulated_weight)
+        
+        comp_rgb = comp_rgb + background_color.to(comp_rgb.device) * (1.0 - accumulated_weight)
         return comp_rgb
 
     @classmethod
