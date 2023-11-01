@@ -190,3 +190,65 @@ class LanternModel(NerfactoModel):
             images_dict[key] = prop_depth_i
 
         return metrics_dict, images_dict
+
+
+    def weighting_function(self, pixels, zmin, zmax):
+        threshold = 0.5 * (zmin + zmax)
+        weights = torch.zeros(pixels.shape, dtype = pixels.dtype).to(self.device)
+        weights = weights + torch.finfo(torch.float32).eps
+        
+        # mask_lowerbound = zmin <= pixels <= threshold
+        mask_lowerbound = torch.ge(pixels, zmin) & torch.le(pixels, threshold)
+        weights[mask_lowerbound] = 2.0 * (pixels[mask_lowerbound] - zmin)
+
+        # mask_upperbound = threshold <= pixels <= zmax
+        mask_upperbound = torch.ge(pixels, threshold) & torch.le(pixels, zmax)
+        weights[mask_upperbound] = 2.0 * (zmax - pixels[mask_upperbound])
+
+        return weights
+    
+    
+    def get_loss_dict(self, outputs, batch, metrics_dict=None):
+        loss_dict = {}
+        weights_for_loss = None
+
+        image = batch["image"].to(self.device)
+        
+        if "exposure" in batch:
+            u = 5000.
+            img_uncompress = torch.exp(image * torch.log(torch.tensor(u+1.))) - 1.
+            img_uncompress /= u
+            
+            exposures_resized = batch["exposure"].view(batch["exposure"].shape[0], 1)
+
+            img_uncompress_re_exposed =  exposures_resized * img_uncompress
+            weights_for_loss = self.weighting_function(torch.clip(img_uncompress_re_exposed, 0, 1), 0.0, 1.0)
+        
+        pred_rgb, gt_rgb = self.renderer_rgb.blend_background_for_loss_computation(
+            pred_image=outputs["rgb"],
+            pred_accumulation=outputs["accumulation"],
+            gt_image=image,
+        )
+        
+        if weights_for_loss is not None:
+            loss_dict["rgb_loss"] = (weights_for_loss * ((gt_rgb - pred_rgb) ** 2)).mean()
+        else:
+            loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
+        
+        if self.training:
+            loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
+                outputs["weights_list"], outputs["ray_samples_list"]
+            )
+            assert metrics_dict is not None and "distortion" in metrics_dict
+            loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
+            if self.config.predict_normals:
+                # orientation loss for computed normals
+                loss_dict["orientation_loss"] = self.config.orientation_loss_mult * torch.mean(
+                    outputs["rendered_orientation_loss"]
+                )
+
+                # ground truth supervision for normals
+                loss_dict["pred_normal_loss"] = self.config.pred_normal_loss_mult * torch.mean(
+                    outputs["rendered_pred_normal_loss"]
+                )
+        return loss_dict

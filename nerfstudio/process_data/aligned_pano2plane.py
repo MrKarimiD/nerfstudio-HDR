@@ -59,7 +59,9 @@ class ProcessAlignedPano(BaseConverterToNerfstudioDataset):
     """If True, process the .exr files as HDR images."""
     use_mask: bool = False
     """If True, process the .exr files with mask."""
-    
+    use_exposure: bool = False
+    """If True, using different exposures."""
+
     def main(self) -> None:
         """Process images into a nerfstudio dataset."""
 
@@ -77,7 +79,8 @@ class ProcessAlignedPano(BaseConverterToNerfstudioDataset):
         self.data = equirect_utils.generate_planar_projections_from_equirectangular_GT(
             self.metadata, self.data, pers_size, 
             self.images_per_equirect, crop_factor=self.crop_factor, clip_output = False,
-            use_mask = self.use_mask
+            use_mask = self.use_mask,
+            use_exposure = self.use_exposure
         )
         self.camera_type = "perspective"
         metadata_dict = io.load_from_json(self.data / "transforms.json")
@@ -86,7 +89,8 @@ class ProcessAlignedPano(BaseConverterToNerfstudioDataset):
         cropped_masks_filename = []
         for frame in metadata_dict["frames"]:
             cropped_images_filename.append(Path(frame["file_path"]))
-            cropped_masks_filename.append(Path(frame["mask_path"]))
+            if self.use_mask:
+                cropped_masks_filename.append(Path(frame["mask_path"]))
         # Copy images to output directory
         if self.is_HDR:
             copied_image_paths = process_data_utils.copy_images_list_EXR(

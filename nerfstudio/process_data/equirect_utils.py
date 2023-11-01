@@ -23,6 +23,7 @@ import math
 import sys
 from pathlib import Path
 from typing import List, Tuple
+import shutil
 
 import cv2
 import numpy as np
@@ -118,7 +119,7 @@ def generate_planar_projections_from_equirectangular(
     hdr_dir: Path,
     crop_factor: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
     is_HDR: bool = False,
-    HDR_planar_image_size: Tuple[int, int] = (None, None),
+    HDR_planar_image_size: Tuple[int, int] = (None, None)
 ) -> Path:
     """Generate planar projections from an equirectangular image.
 
@@ -471,7 +472,8 @@ def generate_planar_projections_from_equirectangular_GT(
     mask_dir: Path = None,
     crop_factor: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
     clip_output: bool = False,
-    use_mask = False
+    use_mask = False,
+    use_exposure = False,
 ) -> Path:
     """Given camera pose, generate planar projections from an equirectangular image.
        And output corresponding camera pose.
@@ -495,7 +497,10 @@ def generate_planar_projections_from_equirectangular_GT(
     device = torch.device("cuda")
     metadata_dict = io.load_from_json(metadata_path)
     frames_previous = metadata_dict["frames"]
-    camera_to_worlds_panos = np.array([frame["transform_matrix"] for frame in frames_previous]).astype(np.float32)
+    camera_to_worlds_panos = {}
+    for frame in frames_previous:
+        camera_to_worlds_panos[frame["file_path"]] = np.array(frame["transform_matrix"]).astype(np.float32)
+    
     
     fov = 120
     yaw_pitch_pairs = []
@@ -535,11 +540,19 @@ def generate_planar_projections_from_equirectangular_GT(
     equi2pers = Equi2Pers(height=planar_image_size[1], width=planar_image_size[0], fov_x=fov, mode="bilinear")
     frame_dir = image_dir
     output_dir = image_dir / "planar_projections"
-    output_dir.mkdir(exist_ok=True)
-    output_mask_dir = output_dir
+    if os.path.isdir(output_dir):
+        CONSOLE.log(f"The directory {output_dir} exists. Deleting the folder...")
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(exist_ok=False)
+    
+    output_mask_dir = ''
     if use_mask:
         output_mask_dir = image_dir/ "mask" / "planar_projections"
-        output_mask_dir.mkdir(exist_ok=True)
+        if os.path.isdir(output_mask_dir):
+            CONSOLE.log(f"The directory {output_mask_dir} exists. Deleting the folder...")
+            shutil.rmtree(output_mask_dir)
+        output_mask_dir.mkdir(exist_ok=False)
+    
     progress = Progress(
         TextColumn("[bold blue]Generating Planar Images", justify="right"),
         BarColumn(),
@@ -552,6 +565,8 @@ def generate_planar_projections_from_equirectangular_GT(
     idx = 0
     files_list = [file for file in os.listdir(frame_dir) 
          if os.path.isfile(os.path.join(frame_dir, file))]
+    files_list = sorted(files_list)
+
     num_ims = len(files_list)
     with progress:
         for i in progress.track(files_list, description="", total=num_ims):
@@ -565,12 +580,7 @@ def generate_planar_projections_from_equirectangular_GT(
                     im = torch.tensor(im, dtype=torch.float32, device=device)
                     im = torch.permute(im, (2, 0, 1)) / 255.0
                 count = 0
-                current_pano_camera_pose = np.array(camera_to_worlds_panos[idx])
-                # Convert from COLMAP's camera coordinate system (OpenCV) to ours (OpenGL)
-                current_pano_camera_pose[0:3, 1:3] *= -1
-                current_pano_camera_pose = current_pano_camera_pose[np.array([1, 0, 2, 3]), :]
-                current_pano_camera_pose[2, :] *= -1
-                
+                current_pano_camera_pose = camera_to_worlds_panos[f"{i[:-4]}"]
                 current_pano_camera_rotation = current_pano_camera_pose[:3, :3]
                 for u_deg, v_deg in yaw_pitch_pairs:
                     v_rad = torch.pi * v_deg / 180.0
@@ -594,6 +604,11 @@ def generate_planar_projections_from_equirectangular_GT(
                             "file_path": f"{output_dir}/{i[:-4]}_{count}.exr",
                             "transform_matrix": perspective_camera_pose.tolist(),
                         }
+                        if use_exposure:
+                            exposure = 1.0
+                            if i[0:3] == "rhs":
+                                exposure = 0.009
+                            frame["exposure"] = exposure
                     else:
                         pers_image *= 255.0
                         pers_image = (pers_image.permute(1, 2, 0)).type(torch.uint8).to("cpu").numpy()
@@ -606,7 +621,7 @@ def generate_planar_projections_from_equirectangular_GT(
                     if use_mask:
                         mask_file_name = file_name + ".png"
                         mask = np.array(cv2.imread(os.path.join(frame_dir, "mask", mask_file_name))).astype("uint8")
-                        mask = ~((mask == 255).all(axis=-1))
+                        mask = ~((mask == 0).all(axis=-1))
                         mask = mask.astype("uint8") * 255
                         # black corresponde to pixel to be ignored
                         mask = torch.tensor(mask[:,:,None], dtype=torch.uint8, device=device)

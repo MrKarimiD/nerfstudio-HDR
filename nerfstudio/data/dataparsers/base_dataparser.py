@@ -69,6 +69,8 @@ class DataparserOutputs:
     """Transform applied by the dataparser."""
     dataparser_scale: float = 1.0
     """Scale applied by the dataparser."""
+    exposures: Optional[List[float]] = None
+    """List of the Exposures for each frames."""
 
     def as_dict(self) -> dict:
         """Returns the dataclass as a dictionary."""

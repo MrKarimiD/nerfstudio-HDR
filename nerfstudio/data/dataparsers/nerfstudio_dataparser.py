@@ -90,6 +90,7 @@ class Nerfstudio(DataParser):
         mask_filenames = []
         depth_filenames = []
         poses = []
+        exposures = []
 
         fx_fixed = "fl_x" in meta
         fy_fixed = "fl_y" in meta
@@ -160,6 +161,10 @@ class Nerfstudio(DataParser):
                 depth_fname = self._get_fname(depth_filepath, data_dir, downsample_folder_prefix="depths_")
                 depth_filenames.append(depth_fname)
 
+            if "exposure" in frame:
+                exposure_value = float(frame["exposure"])
+                exposures.append(exposure_value)
+
         assert len(mask_filenames) == 0 or (
             len(mask_filenames) == len(image_filenames)
         ), """
@@ -171,6 +176,12 @@ class Nerfstudio(DataParser):
         ), """
         Different number of image and depth filenames.
         You should check that depth_file_path is specified for every frame (or zero frames) in transforms.json.
+        """
+        assert len(exposures) == 0 or (
+            len(exposures) == len(image_filenames)
+        ), """
+        Different number of image and exposure values.
+        You should check that exposure_value is specified for every frame (or zero frames) in transforms.json.
         """
 
         has_split_files_spec = any(f"{split}_filenames" in meta for split in ("train", "val", "test"))
@@ -229,6 +240,7 @@ class Nerfstudio(DataParser):
         image_filenames = [image_filenames[i] for i in indices]
         mask_filenames = [mask_filenames[i] for i in indices] if len(mask_filenames) > 0 else []
         depth_filenames = [depth_filenames[i] for i in indices] if len(depth_filenames) > 0 else []
+        exposures = [exposures[i] for i in indices] if len(exposures) > 0 else []
 
         idx_tensor = torch.tensor(indices, dtype=torch.long)
         poses = poses[idx_tensor]
@@ -294,6 +306,7 @@ class Nerfstudio(DataParser):
             cameras=cameras,
             scene_box=scene_box,
             mask_filenames=mask_filenames if len(mask_filenames) > 0 else None,
+            exposures=exposures if len(exposures) > 0 else None,
             dataparser_scale=scale_factor,
             dataparser_transform=transform_matrix,
             metadata={

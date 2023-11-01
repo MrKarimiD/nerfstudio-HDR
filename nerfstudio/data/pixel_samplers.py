@@ -213,9 +213,14 @@ class PixelSampler:
         c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
         c, y, x = c.cpu(), y.cpu(), x.cpu()
         collated_batch = {
-            key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and value is not None
+            key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and key != "exposure" and value is not None
         }
 
+        for key, value in batch.items():
+            if key == "exposure":
+                collated_batch["exposure"] = value[c]
+
+        
         assert collated_batch["image"].shape[0] == num_rays_per_batch
 
         # Needed to correct the random indices to their actual camera idx locations.
