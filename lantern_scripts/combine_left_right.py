@@ -122,10 +122,12 @@ if __name__ == "__main__":
     parser.add_argument('--has_exposure', action='store_true')
     parser.add_argument('--exposure1', type=float, default=1.0)
     parser.add_argument('--exposure2', type=float, default=0.009)
+    parser.add_argument('--skip_the_json', action='store_true')
     args = parser.parse_args()
     
-    assert os.path.isfile(args.left_dir + '/transforms.json'), 'The JSON files for left set is missing!'
-    assert os.path.isfile(args.right_dir + '/transforms.json'), 'The JSON files for right set is missing!'
+    if not args.skip_the_json:
+        assert os.path.isfile(args.left_dir + '/transforms.json'), 'The JSON files for left set is missing!'
+        assert os.path.isfile(args.right_dir + '/transforms.json'), 'The JSON files for right set is missing!'
     assert os.path.isdir(args.left_dir + '/HDR_Normal/'), 'The data folder for left set is missing!'
     assert os.path.isdir(args.right_dir + '/HDR_Normal/'), 'The data folder for right set is missing!'
 
@@ -133,32 +135,33 @@ if __name__ == "__main__":
     os.mkdir(args.out_dir)
     os.mkdir(args.out_dir + 'HDR_Normal/')
     
-    cam_params_lhs = load_from_json( Path(args.left_dir + '/transforms.json') )
-    cam_params_combine = {}
-    cam_params_combine["camera_angle_x"] = cam_params_lhs["camera_angle_x"]
-    cam_params_combine["frames"] = []
-    for frame in tqdm(cam_params_lhs["frames"]):
-        file_path = 'lhs_' + frame["file_path"].split('/')[-1]
-        transform_matrix = frame["transform_matrix"]
-        cam_params_combine["frames"].append(
-            {
-                "file_path": file_path,
-                "transform_matrix": transform_matrix
-            }
-        )
-        # TODO adding exposures
-    cam_params_rhs = load_from_json( Path(args.right_dir + '/transforms.json') )
-    for frame in tqdm(cam_params_rhs["frames"]):
-        file_path = 'rhs_' + frame["file_path"].split('/')[-1]
-        transform_matrix = frame["transform_matrix"]
-        cam_params_combine["frames"].append(
-            {
-                "file_path": file_path,
-                "transform_matrix": transform_matrix
-            }
-        )
-        # TODO adding exposures
-    write_to_json(Path(args.out_dir + '/transforms_all.json'), cam_params_combine)
+    if not args.skip_the_json:
+        cam_params_lhs = load_from_json( Path(args.left_dir + '/transforms.json') )
+        cam_params_combine = {}
+        cam_params_combine["camera_angle_x"] = cam_params_lhs["camera_angle_x"]
+        cam_params_combine["frames"] = []
+        for frame in tqdm(cam_params_lhs["frames"]):
+            file_path = 'lhs_' + frame["file_path"].split('/')[-1]
+            transform_matrix = frame["transform_matrix"]
+            cam_params_combine["frames"].append(
+                {
+                    "file_path": file_path,
+                    "transform_matrix": transform_matrix
+                }
+            )
+            # TODO adding exposures
+        cam_params_rhs = load_from_json( Path(args.right_dir + '/transforms.json') )
+        for frame in tqdm(cam_params_rhs["frames"]):
+            file_path = 'rhs_' + frame["file_path"].split('/')[-1]
+            transform_matrix = frame["transform_matrix"]
+            cam_params_combine["frames"].append(
+                {
+                    "file_path": file_path,
+                    "transform_matrix": transform_matrix
+                }
+            )
+            # TODO adding exposures
+        write_to_json(Path(args.out_dir + '/transforms_all.json'), cam_params_combine)
     
     process_all_images(args.left_dir + '/HDR_Normal/', args.out_dir + '/HDR_Normal/', 'lhs_', args.has_exposure, args.exposure1, 0.0, 0.95)
     process_all_images(args.right_dir + '/HDR_Normal/', args.out_dir + '/HDR_Normal/', 'rhs_', args.has_exposure, args.exposure2, 0.2, 1.0)

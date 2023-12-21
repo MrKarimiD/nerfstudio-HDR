@@ -156,6 +156,7 @@ def _render_trajectory_video(
                         sys.exit(1)
                     output_image = outputs[rendered_output_name]
                     is_depth = rendered_output_name.find("depth") != -1
+                    is_validity = rendered_output_name.find("validity_w") != -1 or  rendered_output_name.find("validity_f") != -1
                     if is_depth:
                         output_image = (
                             colormaps.apply_depth_colormap(
@@ -163,6 +164,22 @@ def _render_trajectory_video(
                                 accumulation=outputs["accumulation"],
                                 near_plane=depth_near_plane,
                                 far_plane=depth_far_plane,
+                                colormap_options=colormap_options,
+                            )
+                            .cpu()
+                            .numpy()
+                        )
+                    elif is_validity:
+                        mask_f = torch.clip(outputs["validity_f"], 0, 1)
+                        mask_f = torch.ones(mask_f.shape).to(mask_f.get_device()) - mask_f
+
+                        final_mask = torch.clip(outputs["validity_w"], 0, 1) + mask_f
+                        final_mask[final_mask > 0.5] = 1
+                        final_mask[final_mask <= 0.5] = 0
+
+                        output_image = (
+                            colormaps.apply_colormap(
+                                final_mask,
                                 colormap_options=colormap_options,
                             )
                             .cpu()

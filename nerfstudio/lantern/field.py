@@ -59,12 +59,12 @@ class LanternNerfactoField(NerfactoField):
                          use_transient_embedding, use_semantics, num_semantic_classes,
                          pass_semantic_gradients, use_pred_normals, use_average_appearance_embedding,
                          spatial_distortion, implementation)
-        # Define the last part MLP for RGB outputs
+        # Define the last part MLP for RGB outputs and Masks
         self.mlp_head = MLP(
             in_dim=self.direction_encoding.get_out_dim() + self.geo_feat_dim + self.appearance_embedding_dim,
             num_layers=num_layers_color,
             layer_width=hidden_dim_color,
-            out_dim=3,
+            out_dim= 3 + 2,
             activation=nn.ReLU(),
             out_activation=nn.ReLU(),
             implementation=implementation,

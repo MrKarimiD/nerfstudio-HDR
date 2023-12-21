@@ -97,7 +97,8 @@ class PixelSampler:
             num_images: number of images to sample over
             mask: mask of possible pixels in an image to sample from.
         """
-        if isinstance(mask, torch.Tensor):
+        # TODO Defining a flag for sampling even when there is a mask 
+        if isinstance(mask, torch.Tensor) and False:
             # mask size: batch * h * w * 1
             # Init state, cache masks indices.
             if self.states_of_mask == 0:    

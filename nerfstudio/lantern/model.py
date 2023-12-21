@@ -12,9 +12,11 @@ from torchmetrics.functional import structural_similarity_index_measure
 from torchmetrics.image import PeakSignalNoiseRatio
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
+from nerfstudio.cameras.rays import RayBundle, RaySamples
 from nerfstudio.lantern.field import LanternNerfactoField
 from nerfstudio.lantern.renderer import RGBRenderer_HDR
 
+from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.density_fields import HashMLPDensityField
 from nerfstudio.model_components.losses import (
@@ -144,6 +146,57 @@ class LanternModel(NerfactoModel):
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
         self.ssim = structural_similarity_index_measure
         self.lpips = LearnedPerceptualImagePatchSimilarity(normalize=True)
+
+
+    def get_outputs(self, ray_bundle: RayBundle):
+        ray_samples: RaySamples
+        ray_samples, weights_list, ray_samples_list = self.proposal_sampler(ray_bundle, density_fns=self.density_fns)
+        field_outputs = self.field.forward(ray_samples, compute_normals=self.config.predict_normals)
+        if self.config.use_gradient_scaling:
+            field_outputs = scale_gradients_by_distance_squared(field_outputs, ray_samples)
+
+        weights = ray_samples.get_weights(field_outputs[FieldHeadNames.DENSITY])
+        weights_list.append(weights)
+        ray_samples_list.append(ray_samples)
+
+        rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
+        depth = self.renderer_depth(weights=weights, ray_samples=ray_samples)
+        accumulation = self.renderer_accumulation(weights=weights)
+
+        outputs = {
+            "rgb": rgb[:, 0:3],
+            "accumulation": accumulation,
+            "depth": depth,
+            "validity_w": rgb[:, 4],
+            "validity_f": rgb[:, 3],
+        }
+
+        if self.config.predict_normals:
+            normals = self.renderer_normals(normals=field_outputs[FieldHeadNames.NORMALS], weights=weights)
+            pred_normals = self.renderer_normals(field_outputs[FieldHeadNames.PRED_NORMALS], weights=weights)
+            outputs["normals"] = self.normals_shader(normals)
+            outputs["pred_normals"] = self.normals_shader(pred_normals)
+        # These use a lot of GPU memory, so we avoid storing them for eval.
+        if self.training:
+            outputs["weights_list"] = weights_list
+            outputs["ray_samples_list"] = ray_samples_list
+
+        if self.training and self.config.predict_normals:
+            outputs["rendered_orientation_loss"] = orientation_loss(
+                weights.detach(), field_outputs[FieldHeadNames.NORMALS], ray_bundle.directions
+            )
+
+            outputs["rendered_pred_normal_loss"] = pred_normal_loss(
+                weights.detach(),
+                field_outputs[FieldHeadNames.NORMALS].detach(),
+                field_outputs[FieldHeadNames.PRED_NORMALS],
+            )
+
+        for i in range(self.config.num_proposal_iterations):
+            outputs[f"prop_depth_{i}"] = self.renderer_depth(weights=weights_list[i], ray_samples=ray_samples_list[i])
+
+        return outputs
+    
     
     def get_image_metrics_and_images(
         self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
@@ -192,7 +245,7 @@ class LanternModel(NerfactoModel):
         return metrics_dict, images_dict
 
 
-    def weighting_function(self, pixels, zmin, zmax):
+    def hat_weighting_function(self, pixels, zmin, zmax):
         threshold = 0.5 * (zmin + zmax)
         weights = torch.zeros(pixels.shape, dtype = pixels.dtype).to(self.device)
         weights = weights + torch.finfo(torch.float32).eps
@@ -206,35 +259,80 @@ class LanternModel(NerfactoModel):
         weights[mask_upperbound] = 2.0 * (zmax - pixels[mask_upperbound])
 
         return weights
+        
+    
+    def cut_weighting_function(self, pixels, exposures):
+        # TODO make sure the values for cuts are not fixed
+        
+        well_exposure = torch.max(exposures)
+        fast_exposure = torch.min(exposures)
+
+        weights = torch.ones(pixels.shape, dtype = pixels.dtype).to(self.device)
+        
+        fast_expo_valids = (exposures == fast_exposure).repeat(1,pixels.shape[-1])
+        weights[fast_expo_valids] = torch.clip(10.0 * (pixels[fast_expo_valids] - 0.1), 0.0, 1.0)
+
+        well_expo_valids = ~fast_expo_valids
+        weights[well_expo_valids] = torch.clip(-20.0 * (pixels[well_expo_valids] - 0.9) + 1, 0.0, 1.0)
+
+        return weights
+
+
+    def cut_weighting_for_mask_function(self, pixels, exposures):
+        well_exposure = torch.max(exposures)
+        fast_exposure = torch.min(exposures)
+
+        weights1 = torch.zeros(exposures.shape, dtype = exposures.dtype).to(self.device)
+        weights2 = torch.zeros(exposures.shape, dtype = exposures.dtype).to(self.device)
+        
+        fast_expo_valids = (exposures == fast_exposure).repeat(1, 1)
+        weights1[fast_expo_valids] = 1.0
+
+        well_expo_valids = ~fast_expo_valids
+        weights2[well_expo_valids] = 1.0
+
+        return weights1, weights2
     
     
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         loss_dict = {}
-        weights_for_loss = None
+        weights_for_RGB_loss = None
 
         image = batch["image"].to(self.device)
-        
+
         if "exposure" in batch:
             u = 5000.
             img_uncompress = torch.exp(image * torch.log(torch.tensor(u+1.))) - 1.
             img_uncompress /= u
-            
             exposures_resized = batch["exposure"].view(batch["exposure"].shape[0], 1)
-
             img_uncompress_re_exposed =  exposures_resized * img_uncompress
-            weights_for_loss = self.weighting_function(torch.clip(img_uncompress_re_exposed, 0, 1), 0.0, 1.0)
+            
+            # Debevec Hat weights for Loss
+            # weights_for_loss = self.hat_weighting_function(torch.clip(img_uncompress_re_exposed, 0, 1), 0.0, 1.0)
+            
+            # Clear cut weights for Loss
+            weights_for_RGB_loss = self.cut_weighting_function(torch.clip(img_uncompress_re_exposed, 0, 1), exposures_resized)
+            mask1_w, mask2_w = self.cut_weighting_for_mask_function(img_uncompress_re_exposed, exposures_resized)
         
         pred_rgb, gt_rgb = self.renderer_rgb.blend_background_for_loss_computation(
             pred_image=outputs["rgb"],
             pred_accumulation=outputs["accumulation"],
             gt_image=image,
         )
-        
-        if weights_for_loss is not None:
-            loss_dict["rgb_loss"] = (weights_for_loss * ((gt_rgb - pred_rgb) ** 2)).mean()
+
+        # MSE loss for mask with weights
+        mask_in_float = batch['mask'].type(torch.float).to(self.device)
+        negative_mask_in_float = torch.ones(mask_in_float.shape).to(self.device) - mask_in_float
+        loss_mask_fast_expo = (mask1_w * (( negative_mask_in_float - torch.unsqueeze(outputs["validity_f"], 1)) ** 2)).mean()
+        loss_mask_well_expo = (mask2_w * (( mask_in_float - torch.unsqueeze(outputs["validity_w"], 1)) ** 2)).mean()
+        loss_dict["validity_loss_well_exposed"] = loss_mask_well_expo
+        loss_dict["validity_loss_fast_exposure"] = loss_mask_fast_expo
+
+        if weights_for_RGB_loss is not None:
+            loss_dict["rgb_loss"] = (weights_for_RGB_loss * ((gt_rgb - pred_rgb) ** 2)).mean()
         else:
             loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
-        
+
         if self.training:
             loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
                 outputs["weights_list"], outputs["ray_samples_list"]
