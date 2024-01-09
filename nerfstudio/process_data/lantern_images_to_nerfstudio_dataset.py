@@ -68,6 +68,12 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
     exposure2: float = 0.009
     """Fast-exposed exposure value (right camera)."""
 
+    skip_perspective_transform: bool = False
+    """Skip perspective transformation."""
+
+    skip_colmap_to_json: bool = False
+    """Skip colmap to json conversion."""
+
     def main(self) -> None:
         """Process images into a nerfstudio dataset."""
         assert self.skip_image_processing, "Image processing not supported for now"	
@@ -84,29 +90,35 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
         image_rename_map: Optional[dict[str, str]] = None
 
         sequence_names = ['left_colmap_baseline', 'right_colmap_baseline', 'left_e1', 'right_e2']
-        sequence_mask_names = ['left_colmap_baseline_mask', 'right_colmap_baseline_mask', 'left_e1_mask', 'right_e2_mask']
         perspective_dirs = []
         perspective_mask_dirs = []
 
-        # Generate planar projections if equirectangular
         if self.camera_type == "equirectangular":
             if self.eval_data is not None:	
                 raise ValueError("Cannot use eval_data with camera_type equirectangular.")
-            pers_size = equirect_utils.compute_resolution_from_equirect(self.data / sequence_names[0], self.images_per_equirect)
-            CONSOLE.log(f"Generating {self.images_per_equirect} {pers_size} sized images per equirectangular image")
+            if not self.skip_perspective_transform:
+                pers_size = equirect_utils.compute_resolution_from_equirect(self.data / sequence_names[0], self.images_per_equirect)
+                CONSOLE.log(f"Generating {self.images_per_equirect} {pers_size} sized images per equirectangular image")
+            else:
+                pers_size = None
 
-            for sequence_name, sequence_mask_name in zip(sequence_names, sequence_mask_names):
-                # check if mask exists
-                if not (self.data / sequence_mask_name).exists():
-                    mask_path = None
+            for sequence_name in sequence_names:
+                if self.mask_dir:
+                    mask_path = self.mask_dir / sequence_name
+                    output_mask_dir = self.data / sequence_name  / 'mask_planar_projections'
                 else:
-                    mask_path = self.data / sequence_mask_name
-                output_dir, output_mask_dir, _ = equirect_utils.generate_planar_projections_from_equirectangular(
-                    self.data / sequence_name, pers_size, self.images_per_equirect, mask_path, crop_factor=self.crop_factor
-                )
+                    mask_path = None
+                    output_mask_dir = None
+                output_dir = self.data / sequence_name / 'planar_projections'
                 perspective_dirs.append(output_dir)
-                CONSOLE.log(f"Generated {len(os.listdir(output_dir))} images in {output_dir}")
                 perspective_mask_dirs.append(output_mask_dir)
+
+                if not self.skip_perspective_transform:
+                    equirect_utils.generate_planar_projections_from_equirectangular(
+                        self.data / sequence_name, pers_size, self.images_per_equirect, mask_path, crop_factor=self.crop_factor
+                    )
+                    CONSOLE.log(f"Generated {len(os.listdir(output_dir))} images in {output_dir}")
+
                 
             self.camera_type = "perspective"
         else:
@@ -145,32 +157,43 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
             summary_log.append(f"Starting with {num_frames} images")
 
         else:
-            num_frames = len(process_data_utils.list_images(self.data / sequence_names[0]))
-            if num_frames == 0:
-                raise RuntimeError("No usable images in the data folder.")
-            summary_log.append(f"Starting with {num_frames} images")
+           #num_frames = len(process_data_utils.list_images(self.data / sequence_names[0]))
+           #if num_frames == 0:
+           #    raise RuntimeError("No usable images in the data folder.")
+           #summary_log.append(f"Starting with {num_frames} images")
+            pass
 
         image_rename_map = None
 
         with tempfile.TemporaryDirectory() as tmp_dir:
+            image_dir = Path(tmp_dir) / "images"
+            image_dir.mkdir(parents=True, exist_ok=True)
+            mask_dir = Path(tmp_dir) / "masks"
+            mask_dir.mkdir(parents=True, exist_ok=True)
+
             # copy files for colmap in tmp_dir
             for i in range(len(perspective_dirs)):
                 # avoid right_e2 (fast-exposed), colmap doesn't work well on it
                 if i == 3:
                     continue
 
-                shutil.copytree(perspective_dirs[i], os.path.join(tmp_dir, sequence_names[i], 'planar_projections'))
-            # TODO: mask
+                shutil.copytree(perspective_dirs[i], image_dir / sequence_names[i])
+            for i in range(len(perspective_mask_dirs)):
+                # avoid right_e2 (fast-exposed), colmap doesn't work well on it
+                if i == 3:
+                    continue
+
+                shutil.copytree(perspective_mask_dirs[i], mask_dir / sequence_names[i])
 
             # Run COLMAP
             if not self.skip_colmap:
                 require_cameras_exist = True
                 self.absolute_colmap_path.mkdir(parents=True, exist_ok=True)
                 colmap_utils.run_colmap(
-                    image_dir=Path(tmp_dir),
+                    image_dir=image_dir,
                     colmap_dir=self.absolute_colmap_path,
                     camera_model=process_data_utils.CAMERA_MODELS[self.camera_type],
-                    camera_mask_path=None, #TODO
+                    mask_path=mask_dir,
                     gpu=self.gpu,
                     verbose=self.verbose,
                     matching_method=self.matching_method,
@@ -184,13 +207,12 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
         summary_log += log_tmp
         incomplete_transforms_file = self.output_dir / "transforms_incomplete.json"
 
-        if not self.skip_colmap:
+        if not self.skip_colmap_to_json:
             if require_cameras_exist and not (self.absolute_colmap_model_path / "cameras.bin").exists():
                 raise RuntimeError(f"Could not find existing COLMAP results ({self.colmap_model_path / 'cameras.bin'}).")
             
             summary_log += self._save_transforms(
-                num_frames,
-                # todo: mask
+                camera_mask_path=Path('masks'),
             )
 
             shutil.move(str(self.output_dir / 'transforms.json'), incomplete_transforms_file)
@@ -200,9 +222,9 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
         frames = original_transforms["frames"]
         sorted_frames = sorted(frames, key=lambda x: x["file_path"])
 
-        # frames are splitted into 4 groups: left_calib, right_calib, left_e1, left_e2
+        # frames are splitted into 4 groups: left_calib, right_calib, left_e1, right_e2
         # the two first groups are used to infer the basis_change between left and right
-        # that basis_change is then applied to the third group (left_e1) to infer the fourth (left_e2)
+        # that basis_change is then applied to the third group (left_e1) to infer the fourth (right_e2)
 
         grouped_frames = {sequence_name: dict() for sequence_name in ['left_colmap_baseline', 'right_colmap_baseline', 'left_e1']}
         for frame in sorted_frames:
@@ -214,19 +236,31 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                 crop_direction = int(matches.group(3))
                 if crop_direction not in grouped_frames[sequence_name].keys():
                     grouped_frames[sequence_name][crop_direction] = []
-                grouped_frames[sequence_name][crop_direction].append(frame)
+                updated_frame = deepcopy(frame)
+                # change frame's file_path, which looks like images/left_colmap_baseline/000000_0_0.png to images/left_colmap_baseline/planar_projections/000000_0.png
+                # also change frame's mask_path, which looks like mask/left_colmap_baseline/000000_0_0.png to images/left_colmap_baseline/mask_planar_projections/000000_0.png
+                updated_frame["file_path"] = updated_frame["file_path"].replace(f'images/{sequence_name}/', f'images/{sequence_name}/planar_projections/')
+                updated_frame["mask_path"] = updated_frame["mask_path"].replace(f'masks/{sequence_name}/', f'images/{sequence_name}/mask_planar_projections/')
+                grouped_frames[sequence_name][crop_direction].append(updated_frame)
             else:
                 # warning
                 print(f'Warning: {frame["file_path"]} does not match regex')
 
 
+        # write to text file grouped_frames
+        with open(self.output_dir / 'grouped_frames.json', 'w') as f:
+            json.dump(grouped_frames, f, indent=4)
+
+
         # group 3 is empty, we want to infer its transform
         grouped_frames['right_e2'] = dict()
         for crop_direction in range(self.images_per_equirect):
+            if crop_direction not in grouped_frames['left_colmap_baseline'].keys() or crop_direction not in grouped_frames['right_colmap_baseline'].keys():
+                print(f'Warning: no left_colmap_baseline or right_colmap_baseline for crop_direction {crop_direction}')
+                continue
             group_0_tranform = np.array(grouped_frames['left_colmap_baseline'][crop_direction][0]['transform_matrix'])
             group_1_tranform = np.array(grouped_frames['right_colmap_baseline'][crop_direction][0]['transform_matrix'])
             
-            # TODO: check which one is right
             basis_change = np.linalg.inv(group_0_tranform) @ group_1_tranform
             # basis_change = np.linalg.inv(group_1_tranform) @ group_0_tranform
 
@@ -240,21 +274,22 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                         grouped_frames['right_e2'][crop_direction] = []
                     grouped_frames['right_e2'][crop_direction].append({
                         'file_path': frame['file_path'].replace('left_e1', 'right_e2').replace('lhs', 'rhs'), # TODO validate file naming convention
-                        'transform_matrix': group_3_frame_transform
+                        'transform_matrix': group_3_frame_transform,
+                        'mask_path': frame['mask_path'].replace('left_e1', 'right_e2').replace('lhs', 'rhs'), # TODO validate file naming convention
                     })
             else:
                 # warning
                 print(f'Warning: no left_e1 for crop_direction {crop_direction}')
         
-        # write to text file grouped_frames
-        with open(self.output_dir / 'grouped_frames.json', 'w') as f:
-            json.dump(grouped_frames, f, indent=4)
 
         # generate new transforms.json
         new_transforms = deepcopy(original_transforms)
         new_transforms['frames'] = []
         for sequence_name in ['left_e1', 'right_e2']:
             for i, crop_direction in enumerate(range(self.images_per_equirect)):
+                if crop_direction not in grouped_frames[sequence_name].keys():
+                    print(f'Warning: no {sequence_name} for crop_direction {crop_direction}')
+                    continue
                 new_transforms['frames'] += grouped_frames[sequence_name][crop_direction]
                 
         with open(self.output_dir / 'transforms.json', "w", encoding="UTF-8") as file:
