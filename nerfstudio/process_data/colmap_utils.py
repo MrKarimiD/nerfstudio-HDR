@@ -90,6 +90,7 @@ def run_colmap(
     colmap_dir: Path,
     camera_model: CameraModel,
     camera_mask_path: Optional[Path] = None,
+    mask_path: Optional[Path] = None,
     gpu: bool = True,
     verbose: bool = False,
     matching_method: Literal["vocab_tree", "exhaustive", "sequential"] = "vocab_tree",
@@ -101,7 +102,8 @@ def run_colmap(
         image_dir: Path to the directory containing the images.
         colmap_dir: Path to the output directory.
         camera_model: Camera model to use.
-        camera_mask_path: Path to the camera mask.
+        camera_mask_path: Path to the camera mask (a single image).
+        mask_path: Path for a directory containing masks for each image.
         gpu: If True, use GPU.
         verbose: If True, logs the output of the command.
         matching_method: Matching method to use.
@@ -124,6 +126,8 @@ def run_colmap(
     ]
     if camera_mask_path is not None:
         feature_extractor_cmd.append(f"--ImageReader.camera_mask_path {camera_mask_path}")
+    if mask_path is not None:
+        feature_extractor_cmd.append(f"--ImageReader.mask_path {mask_path}")
     feature_extractor_cmd = " ".join(feature_extractor_cmd)
     with status(msg="[bold yellow]Running COLMAP feature extractor...", spinner="moon", verbose=verbose):
         run_command(feature_extractor_cmd, verbose=verbose)
@@ -548,7 +552,7 @@ def colmap_to_json(
             "colmap_im_id": im_id,
         }
         if camera_mask_path is not None:
-            frame["mask_path"] = Path(camera_mask_path.absolute() / im_data.name).as_posix() # camera_mask_path.relative_to(camera_mask_path.parent.parent).as_posix()
+            frame["mask_path"] = (camera_mask_path/ im_data.name).as_posix() # camera_mask_path.relative_to(camera_mask_path.parent.parent).as_posix()
         if image_id_to_depth_path is not None:
             depth_path = image_id_to_depth_path[im_id]
             frame["depth_file_path"] = str(depth_path)

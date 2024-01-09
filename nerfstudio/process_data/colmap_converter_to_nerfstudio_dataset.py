@@ -19,7 +19,9 @@ from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
 
 from nerfstudio.process_data import colmap_utils, hloc_utils, process_data_utils
-from nerfstudio.process_data.base_converter_to_nerfstudio_dataset import BaseConverterToNerfstudioDataset
+from nerfstudio.process_data.base_converter_to_nerfstudio_dataset import (
+    BaseConverterToNerfstudioDataset,
+)
 from nerfstudio.process_data.process_data_utils import CAMERA_MODELS
 from nerfstudio.utils import install_checks
 from nerfstudio.utils.rich_utils import CONSOLE
@@ -151,7 +153,7 @@ class ColmapConverterToNerfstudioDataset(BaseConverterToNerfstudioDataset):
     
     def _save_transforms(
         self,
-        num_frames: int,
+        num_frames: int = 0,
         image_id_to_depth_path: Optional[Dict[int, Path]] = None,
         camera_mask_path: Optional[Path] = None,
         camera_hdr_path: Optional[Path] = None,
@@ -177,7 +179,7 @@ class ColmapConverterToNerfstudioDataset(BaseConverterToNerfstudioDataset):
                     is_HDR=is_HDR,
                 )
                 summary_log.append(f"Colmap matched {num_matched_frames} images")
-            summary_log.append(colmap_utils.get_matching_summary(num_frames, num_matched_frames))
+            # summary_log.append(colmap_utils.get_matching_summary(num_frames, num_matched_frames))
 
         else:
             CONSOLE.log(
