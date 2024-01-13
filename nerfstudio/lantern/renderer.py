@@ -33,6 +33,7 @@ class RGBRenderer_HDR(RGBRenderer):
         Returns:
             Outputs of rgb values.
         """
+        background_color = 'random'
         if background_color is None:
             background_color = self.background_color
 

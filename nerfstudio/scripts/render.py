@@ -79,6 +79,7 @@ def _render_trajectory_video(
     depth_near_plane: Optional[float] = None,
     depth_far_plane: Optional[float] = None,
     colormap_options: colormaps.ColormapOptions = colormaps.ColormapOptions(),
+    reference_names: List[str] = None,
 ) -> None:
     """Helper function to create a video of the spiral trajectory.
 
@@ -174,8 +175,8 @@ def _render_trajectory_video(
                         mask_f = torch.ones(mask_f.shape).to(mask_f.get_device()) - mask_f
 
                         final_mask = torch.clip(outputs["validity_w"], 0, 1) + mask_f
-                        final_mask[final_mask > 0.5] = 1
-                        final_mask[final_mask <= 0.5] = 0
+                        # final_mask[final_mask > 0.5] = 1
+                        # final_mask[final_mask <= 0.5] = 0
 
                         output_image = (
                             colormaps.apply_colormap(
@@ -205,13 +206,21 @@ def _render_trajectory_video(
                 render_image = np.concatenate(render_image, axis=1)
                 if output_format == "images":
                     if image_format == "png":
-                        media.write_image(output_image_dir / f"{camera_idx:05d}.png", render_image, fmt="png")
+                        if reference_names is not None:
+                            ref_name = reference_names[camera_idx]
+                            media.write_image(output_image_dir / f"{ref_name}.png", render_image, fmt="png")
+                        else:
+                            media.write_image(output_image_dir / f"{camera_idx+1:05d}.png", render_image, fmt="png")
                     if image_format == "jpeg":
                         media.write_image(
                             output_image_dir / f"{camera_idx:05d}.jpg", render_image, fmt="jpeg", quality=jpeg_quality
                         )
                     if image_format == "exr":
-                        output_path_str = str(output_image_dir / f"{camera_idx:05d}.exr")
+                        if reference_names is not None:
+                            ref_name = reference_names[camera_idx]
+                            output_path_str = str(output_image_dir / f"{ref_name}.exr")
+                        else:
+                            output_path_str = str(output_image_dir / f"{camera_idx+1:05d}.exr")
                         CONSOLE.print(f"HDR Img {camera_idx}, max value: {render_image.max()}", justify="center")
                         render_image = cv2.cvtColor(render_image, cv2.COLOR_BGR2RGB)
                         cv2.imwrite(output_path_str, render_image)
@@ -547,6 +556,9 @@ class RenderInterpolated(BaseRender):
             assert pipeline.datamanager.train_dataset is not None
             cameras = pipeline.datamanager.train_dataset.cameras
 
+        output_names = []
+        for file_name in pipeline.datamanager.train_dataset.image_filenames:
+            output_names.append(file_name.stem)
         seconds = self.interpolation_steps * len(cameras) / self.frame_rate
         camera_path = get_interpolated_camera_path(
             cameras=cameras,
@@ -566,6 +578,7 @@ class RenderInterpolated(BaseRender):
             depth_near_plane=self.depth_near_plane,
             depth_far_plane=self.depth_far_plane,
             colormap_options=self.colormap_options,
+            reference_names=output_names,
         )
 
 

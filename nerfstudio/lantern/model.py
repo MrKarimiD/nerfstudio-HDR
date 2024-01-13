@@ -270,7 +270,7 @@ class LanternModel(NerfactoModel):
         weights = torch.ones(pixels.shape, dtype = pixels.dtype).to(self.device)
         
         fast_expo_valids = (exposures == fast_exposure).repeat(1,pixels.shape[-1])
-        weights[fast_expo_valids] = torch.clip(10.0 * (pixels[fast_expo_valids] - 0.1), 0.0, 1.0)
+        weights[fast_expo_valids] = torch.clip(10.0 * (pixels[fast_expo_valids] - 0.2), 0.0, 1.0)
 
         well_expo_valids = ~fast_expo_valids
         weights[well_expo_valids] = torch.clip(-20.0 * (pixels[well_expo_valids] - 0.9) + 1, 0.0, 1.0)
