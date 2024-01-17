@@ -24,8 +24,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import cv2
 import numpy as np
 
+from lantern_scripts.extract_linearized import apply_correction
 from nerfstudio.process_data import colmap_utils, equirect_utils, process_data_utils
 from nerfstudio.process_data.colmap_converter_to_nerfstudio_dataset import (
     ColmapConverterToNerfstudioDataset,
@@ -62,11 +64,19 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
     # right_e2_mask_dir: Optional[Path] = None
     # """Path to the right camera e2 mask directory (fast-exposed)."""
 
-    exposure1: float = 1.0
-    """Well-exposed exposure value (left camera)."""
+    exposure1: float = None # t = 1/125
+    # """Well-exposed exposure value (left camera)."""
+# 
+    exposure2: float = None # t = 1/25000
+    # """Fast-exposed exposure value (right camera)."""
 
-    exposure2: float = 0.009
-    """Fast-exposed exposure value (right camera)."""
+   # exposure1: float = 1.0 # t = 1/125
+   # """Well-exposed exposure value (left camera)."""
+# 
+   # exposure2: float = 0.0032 # t = 1/25000
+   # """Fast-exposed exposure value (right camera)."""
+
+    white_balance_setting = 3500
 
     skip_perspective_transform: bool = False
     """Skip perspective transformation."""
@@ -74,10 +84,28 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
     skip_colmap_to_json: bool = False
     """Skip colmap to json conversion."""
 
+    skip_compactness_constraint: bool = False
+
+    capture_settings_file_name: str = "capture_settings.json"
+
+    skip_linearization: bool = False
+
+    skip_saturation_mask: bool = False
+
     def main(self) -> None:
         """Process images into a nerfstudio dataset."""
         assert self.skip_image_processing, "Image processing not supported for now"	
         self.is_HDR = True
+
+        # check camera settings
+        with open(self.data / self.capture_settings_file_name) as f:
+            # read shutter_left, shutter_right, iso_left, iso_right
+            data = json.load(f)
+            self.white_balance_setting = data["left"]["white_balance"]
+            self.exposure1 = 1.0
+            self.exposure2 = data["right"]["shutter_speed"] / data["left"]["shutter_speed"]
+
+            
         
         require_cameras_exist = False
         if self.colmap_model_path != ColmapConverterToNerfstudioDataset.default_colmap_path():
@@ -252,17 +280,65 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
             json.dump(grouped_frames, f, indent=4)
 
 
+        thresh = 0.05
+        COMPACTNESS_THRESHOLDS = {
+            'left_colmap_baseline': thresh,
+            'right_colmap_baseline': thresh,
+            'left_e1': thresh,
+        }
+        deleted_frames = dict()
+        for sequence_name in ['left_colmap_baseline', 'right_colmap_baseline', 'left_e1']:
+            deleted_frames[sequence_name] = []
+        if not self.skip_compactness_constraint:
+            for sequence_name in ['left_colmap_baseline', 'right_colmap_baseline', 'left_e1']:
+                panoramic_frame_count = len(grouped_frames[sequence_name][1])
+                print(f'panoramic_frame_count: {panoramic_frame_count}')
+                panoramic_frames = [ [] for _ in range(panoramic_frame_count) ]
+                for crop_direction in grouped_frames[sequence_name].keys():
+                    for i, frame in enumerate(grouped_frames[sequence_name][crop_direction]):
+                        panoramic_frames[i].append(frame)
+                
+                for i, panoramic_frame in enumerate(panoramic_frames):
+                    camera_center_mean = np.mean([np.array(frame['transform_matrix'])[0:3, 3] for frame in panoramic_frame], axis=0)
+                    camera_distances = [np.linalg.norm(np.array(frame['transform_matrix'])[0:3, 3] - camera_center_mean) for frame in panoramic_frame]
+                    camera_center_std = np.std(camera_distances)
+                    norm_camera_center_std = np.linalg.norm(camera_center_std)
+                    print(f'norm_camera_center_std: {norm_camera_center_std}')
+                    if norm_camera_center_std > COMPACTNESS_THRESHOLDS[sequence_name]:
+                        print(f'Warning: norm_camera_center_std {norm_camera_center_std} > COMPACTNESS_THRESHOLDS[{sequence_name}] {COMPACTNESS_THRESHOLDS[sequence_name]}')
+                        deleted_frames[sequence_name] += panoramic_frame
+
+                if sequence_name == 'left_e1':
+                    # delete from grouped_frames
+                    for frame in deleted_frames[sequence_name]:
+                        for crop_direction in grouped_frames[sequence_name].keys():
+                            try:
+                                grouped_frames[sequence_name][crop_direction].remove(frame)
+                            except ValueError:
+                                pass
+
+
         # group 3 is empty, we want to infer its transform
         grouped_frames['right_e2'] = dict()
         for crop_direction in range(self.images_per_equirect):
             if crop_direction not in grouped_frames['left_colmap_baseline'].keys() or crop_direction not in grouped_frames['right_colmap_baseline'].keys():
                 print(f'Warning: no left_colmap_baseline or right_colmap_baseline for crop_direction {crop_direction}')
                 continue
+            
+            # for frame_idx in range(len(grouped_frames['left_colmap_baseline'][crop_direction])):
+            #     print(f'crop_direction: {crop_direction}, frame_idx: {frame_idx}')
+            #     if grouped_frames['left_colmap_baseline'][crop_direction][frame_idx] in deleted_frames['left_colmap_baseline']:
+            #         continue
+            #     if grouped_frames['right_colmap_baseline'][crop_direction][frame_idx] in deleted_frames['right_colmap_baseline']:
+            #         continue
+            #     group_0_tranform = np.array(grouped_frames['left_colmap_baseline'][crop_direction][frame_idx]['transform_matrix'])
+            #     group_1_tranform = np.array(grouped_frames['right_colmap_baseline'][crop_direction][frame_idx]['transform_matrix'])
+            #     
+            #     basis_change = np.linalg.inv(group_0_tranform) @ group_1_tranform
+
             group_0_tranform = np.array(grouped_frames['left_colmap_baseline'][crop_direction][0]['transform_matrix'])
             group_1_tranform = np.array(grouped_frames['right_colmap_baseline'][crop_direction][0]['transform_matrix'])
-            
             basis_change = np.linalg.inv(group_0_tranform) @ group_1_tranform
-            # basis_change = np.linalg.inv(group_1_tranform) @ group_0_tranform
 
             # sometimes, colmap omits frames, so if a frame doesn't have the left_e1 pose, we can't infer the right_e2 pose
             if grouped_frames['left_e1'].get(crop_direction):
@@ -281,6 +357,7 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                 # warning
                 print(f'Warning: no left_e1 for crop_direction {crop_direction}')
         
+        # TODO: copy images
 
         # generate new transforms.json
         new_transforms = deepcopy(original_transforms)
@@ -292,8 +369,73 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                     continue
                 new_transforms['frames'] += grouped_frames[sequence_name][crop_direction]
                 
-        with open(self.output_dir / 'transforms.json', "w", encoding="UTF-8") as file:
-            json.dump(new_transforms, file, indent=4)
+
+        # linearization
+        if not self.skip_linearization:
+            with open(f'linearize-ricoh-z10-wb-{self.white_balance_setting}.json') as f:
+                data = json.load(f)
+                CORRECTION_CURVE_TYPE = data["type"]
+
+            for sequence_name in ['left_e1', 'right_e2']:
+                for i, crop_direction in enumerate(range(self.images_per_equirect)):
+                    if crop_direction not in grouped_frames[sequence_name].keys():
+                        print(f'Warning: no {sequence_name} for crop_direction {crop_direction}')
+                        continue
+                    for frame in grouped_frames[sequence_name][crop_direction]:
+                        print(os.path.join(self.output_dir, frame['file_path']))
+                        img = cv2.imread(os.path.join(self.output_dir, frame['file_path']))
+                        img = apply_correction((data["B"], data["G"], data["R"]), img, CORRECTION_CURVE_TYPE)
+                        print(os.path.join(self.output_dir, frame['file_path'].replace('.png', '_linear.exr')))
+                        
+                        img /= 255
+                        exposed_img = img * self.exposure1 if sequence_name == 'left_e1' else img / self.exposure2
+                        cv2.imwrite(os.path.join(self.output_dir, frame['file_path'].replace('.png', '_linear.exr')), exposed_img)
+
+                        #frame['file_path'] = frame['file_path'].replace('.png', '_linear.exr')
+ 
+        # saturation mask
+        if not self.skip_saturation_mask:
+            for sequence_name in ['left_e1', 'right_e2']:
+                for i, crop_direction in enumerate(range(self.images_per_equirect)):
+                    if crop_direction not in grouped_frames[sequence_name].keys():
+                        print(f'Warning: no {sequence_name} for crop_direction {crop_direction}')
+                        continue
+                    for frame in grouped_frames[sequence_name][crop_direction]:
+                        img = cv2.imread(os.path.join(self.output_dir, frame['file_path']))
+                        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                        img = img.astype(np.float32) / 255.0
+                        # left e1 threshold: valid from 0 to 0.95
+                        # right e2 threshold: valid from 0.2 to 1
+                        # to have mask be =1, all 3 channels must be valid
+                        if sequence_name == 'left_e1':
+                            min_thresh = 0.0
+                            max_thresh = 0.95
+                        else:
+                            min_thresh = 0.2
+                            max_thresh = 1.0
+                        mask = np.greater_equal(img, min_thresh) & np.less_equal(img, max_thresh)
+                        mask = np.all(mask, axis=2)
+                        mask = mask.astype(np.uint8) * 255
+                        cv2.imwrite(os.path.join(self.output_dir, frame['mask_path'].replace('.png', '_saturation_mask.png')), mask)
+                        # add to frame
+                        frame['saturation_mask_path'] = frame['mask_path'].replace('.png', '_saturation_mask.png')
+
+        # change frame file_path to linear exr
+        for frame in new_transforms['frames']:
+            frame['file_path'] = frame['file_path'].replace('.png', '_linear.exr')
+
+        # generate new transforms.json
+        new_transforms['frames'] = []
+        #for sequence_name in ['left_e1']:#, 'right_e2']:
+        for sequence_name in ['left_e1', 'right_e2']:
+        # for sequence_name in ['left_colmap_baseline', 'right_colmap_baseline']:
+            for i, crop_direction in enumerate(range(self.images_per_equirect)):
+                if crop_direction not in grouped_frames[sequence_name].keys():
+                    print(f'Warning: no {sequence_name} for crop_direction {crop_direction}')
+                    continue
+                new_transforms['frames'] += grouped_frames[sequence_name][crop_direction]
+
+        
 
         # for HDR-Nerfacto, output also the exposures
         exposures_content = {}
@@ -303,8 +445,15 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
             else:
                 exposures_content[frame['file_path']] = self.exposure1
         
+        # add the exposures to the transforms.json
+        for frame in new_transforms['frames']:
+            frame['exposure'] = exposures_content[frame['file_path']]
+
         with open(self.output_dir / 'exposures.json', "w", encoding="UTF-8") as file:
             json.dump(exposures_content, file, indent=4)        
+
+        with open(self.output_dir / 'transforms.json', "w", encoding="UTF-8") as file:
+            json.dump(new_transforms, file, indent=4)
 
         CONSOLE.log("[bold green]:tada: :tada: :tada: All DONE :tada: :tada: :tada:")
 
