@@ -1,45 +1,47 @@
-import detectron2
 from detectron2.utils.logger import setup_logger
+
 setup_logger()
 
 # import some common libraries
-import numpy as np
-import os, json, cv2, random
 import argparse
-from tqdm import tqdm
+import glob
+import os
 
+import cv2
+import numpy as np
 
 # import some common detectron2 utilities
 from detectron2 import model_zoo
-from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
-from detectron2.utils.visualizer import Visualizer
-from detectron2.data import MetadataCatalog, DatasetCatalog
-
-
+from detectron2.engine import DefaultPredictor
+from tqdm import tqdm
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_dir', type=str, default='', help='directory to data')
-    parser.add_argument('--output_dir', type=str, default='')
-    parser.add_argument('--stick',type=str,default='')
+    parser.add_argument('--input_dir', type=str, default='./data/lab_ground_floor/trimmed_videos', help='Directory containing all the frames')
+    parser.add_argument('--custom_left_mask', type=str, default='./data/lab_ground_floor/custom_masks/left_mask.png')
+    parser.add_argument('--custom_right_mask', type=str, default='./data/lab_ground_floor/custom_masks/right_mask.png')
+    parser.add_argument('--output_dir', type=str, default='./data/lab_ground_floor/trimmed_videos_masks')
+    
     args = parser.parse_args()
-    out = f'{args.output_dir}/mask/'
+    out = args.output_dir
     # out = f'{args.output_dir}/overlay'
     if(not os.path.isdir(out)):
         os.makedirs(out)
     # stick = cv2.imread(args.stick)
-    imgs = os.listdir(os.path.join(args.input_dir,'ldr'))
+    imgs = glob.glob(os.path.join(args.input_dir, "**", "*.png"), recursive=True)
     # imgs = os.listdir(args.input_dir)
     cfg = get_cfg()
     cfg.merge_from_file(model_zoo.get_config_file("COCO-PanopticSegmentation/panoptic_fpn_R_101_3x.yaml"))
     cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-PanopticSegmentation/panoptic_fpn_R_101_3x.yaml")
     predictor = DefaultPredictor(cfg)
     for file in tqdm(imgs):
-        path = f'{args.input_dir}/ldr/{file}'
-        img = cv2.imread(path)
+        img = cv2.imread(file)
         panoptic_seg, segments_info = predictor(img)["panoptic_seg"]
                 # category_id = 0 is person which we need. the number in panoptic_seg is the corresponding id not category id
+
+
+
         new_seg_info=[]
         nimg = panoptic_seg.cpu().numpy()
         w,h = nimg.shape
@@ -61,8 +63,13 @@ if __name__ == '__main__':
         # fmask = fmask & stick.astype('uint8')
         # kernel = np.ones((5, 5), np.uint8)
         # fmask = cv2.erode(fmask,kernel)
-        cv2.imwrite(f'{out}/{file}',fmask)
+        cv2.imwrite(f'{out}/{os.path.basename(file)}',fmask)
         # print(out)
         # print(file)
         # output_path = os.path.join(out,file)
         # cv2.imwrite(output_path,im)
+
+        # also save masked image
+        masked_image = img.copy()
+        masked_image[fmask == 0] = 255
+        cv2.imwrite(f'{out}/masked_{os.path.basename(file)}', masked_image)
