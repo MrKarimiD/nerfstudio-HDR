@@ -4,7 +4,7 @@ Lantern Model File
 Currently this subclasses the Nerfacto model. Consider subclassing from the base Model.
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Tuple, Type
+from typing import Dict, Tuple, Type
 
 import numpy as np
 import torch
@@ -13,28 +13,37 @@ from torchmetrics.image import PeakSignalNoiseRatio
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 from nerfstudio.cameras.rays import RayBundle, RaySamples
-from nerfstudio.lantern.field import LanternNerfactoField
-from nerfstudio.lantern.renderer import RGBRenderer_HDR
-
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.density_fields import HashMLPDensityField
+from nerfstudio.lantern.field import LanternNerfactoField
+from nerfstudio.lantern.renderer import RGBRenderer_HDR
 from nerfstudio.model_components.losses import (
-    MSELoss, distortion_loss, interlevel_loss, orientation_loss,
-    pred_normal_loss, scale_gradients_by_distance_squared)
-from nerfstudio.model_components.ray_samplers import (ProposalNetworkSampler,
-                                                      UniformSampler)
-from nerfstudio.model_components.renderers import (AccumulationRenderer,
-                                                   DepthRenderer,
-                                                   NormalsRenderer,
-                                                   RGBRenderer)
+    MSELoss,
+    interlevel_loss,
+    orientation_loss,
+    pred_normal_loss,
+    scale_gradients_by_distance_squared,
+)
+from nerfstudio.model_components.ray_samplers import (
+    ProposalNetworkSampler,
+    UniformSampler,
+)
+from nerfstudio.model_components.renderers import (
+    AccumulationRenderer,
+    DepthRenderer,
+    NormalsRenderer,
+)
 from nerfstudio.model_components.scene_colliders import NearFarCollider
 from nerfstudio.model_components.shaders import NormalsShader
-from nerfstudio.models.base_model import Model, ModelConfig  # for custom Model
 from nerfstudio.models.nerfacto import (  # for subclassing Nerfacto model
-    NerfactoModel, NerfactoModelConfig)
+    NerfactoModel,
+    NerfactoModelConfig,
+)
 from nerfstudio.utils import colormaps
 
+FAST_EXPOSURE_CUTOFF = 0.26 # good for real data (0.1 for synthetic)
+WELL_EXPOSURE_CUTOFF = 0.9 # good for real data (0.9 for synthetic)
 
 @dataclass
 class LanternModelConfig(NerfactoModelConfig):
@@ -270,10 +279,10 @@ class LanternModel(NerfactoModel):
         weights = torch.ones(pixels.shape, dtype = pixels.dtype).to(self.device)
         
         fast_expo_valids = (exposures == fast_exposure).repeat(1,pixels.shape[-1])
-        weights[fast_expo_valids] = torch.clip(10.0 * (pixels[fast_expo_valids] - 0.1), 0.0, 1.0)
+        weights[fast_expo_valids] = torch.clip(10.0 * (pixels[fast_expo_valids] - FAST_EXPOSURE_CUTOFF), 0.0, 1.0)
 
         well_expo_valids = ~fast_expo_valids
-        weights[well_expo_valids] = torch.clip(-20.0 * (pixels[well_expo_valids] - 0.9) + 1, 0.0, 1.0)
+        weights[well_expo_valids] = torch.clip(-20.0 * (pixels[well_expo_valids] - WELL_EXPOSURE_CUTOFF) + 1, 0.0, 1.0)
 
         return weights
 
@@ -321,7 +330,7 @@ class LanternModel(NerfactoModel):
         )
 
         # MSE loss for mask with weights
-        mask_in_float = batch['mask'].type(torch.float).to(self.device)
+        mask_in_float = batch['saturation_mask'].type(torch.float).to(self.device)
         negative_mask_in_float = torch.ones(mask_in_float.shape).to(self.device) - mask_in_float
         loss_mask_fast_expo = (mask1_w * (( negative_mask_in_float - torch.unsqueeze(outputs["validity_f"], 1)) ** 2)).mean()
         loss_mask_well_expo = (mask2_w * (( mask_in_float - torch.unsqueeze(outputs["validity_w"], 1)) ** 2)).mean()
@@ -338,7 +347,7 @@ class LanternModel(NerfactoModel):
                 outputs["weights_list"], outputs["ray_samples_list"]
             )
             assert metrics_dict is not None and "distortion" in metrics_dict
-            loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
+            # loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
             if self.config.predict_normals:
                 # orientation loss for computed normals
                 loss_dict["orientation_loss"] = self.config.orientation_loss_mult * torch.mean(
