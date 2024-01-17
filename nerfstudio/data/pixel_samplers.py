@@ -17,15 +17,8 @@ Code for sampling pixels.
 """
 
 import random
-
-import torch
-from jaxtyping import Int
-from torch import Tensor
-from math import ceil
-
 from dataclasses import dataclass, field
-from nerfstudio.data.utils.pixel_sampling_utils import erode_mask
-import nerfstudio.utils.profiler as profiler
+from math import ceil
 from typing import (
     Dict,
     Optional,
@@ -33,9 +26,15 @@ from typing import (
     Union,
 )
 
+import torch
+from jaxtyping import Int
+from torch import Tensor
+
 from nerfstudio.configs.base_config import (
     InstantiateConfig,
 )
+from nerfstudio.data.utils.pixel_sampling_utils import erode_mask
+from nerfstudio.utils import profiler
 
 
 @dataclass
@@ -98,7 +97,7 @@ class PixelSampler:
             mask: mask of possible pixels in an image to sample from.
         """
         # TODO Defining a flag for sampling even when there is a mask 
-        if isinstance(mask, torch.Tensor) and False:
+        if isinstance(mask, torch.Tensor):
             # mask size: batch * h * w * 1
             # Init state, cache masks indices.
             if self.states_of_mask == 0:    

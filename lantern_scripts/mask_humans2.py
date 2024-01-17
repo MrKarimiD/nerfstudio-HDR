@@ -20,25 +20,25 @@ FRAME_SUBFOLDERS_CONFIG = [
         'name': 'left_colmap_baseline',
         'flip_k': -1,
         'mask_person': True,
-        'custom_mask': './data/lab_ground_floor/custom_masks/left_mask.png'
+        'custom_mask': './stick_masks/left_mask.png'
     },
     {
         'name': 'right_colmap_baseline',
         'flip_k': 1,
         'mask_person': True,
-        'custom_mask': './data/lab_ground_floor/custom_masks/right_mask.png'
+        'custom_mask': './stick_masks/right_mask.png'
     },
     {
         'name': 'left_e1',
         'flip_k': -1,
         'mask_person': True,
-        'custom_mask': './data/lab_ground_floor/custom_masks/left_mask.png'
+        'custom_mask': './stick_masks/left_mask.png'
     },
     {
         'name': 'right_e2',
         'flip_k': 1,
         'mask_person': False,
-        'custom_mask': './data/lab_ground_floor/custom_masks/right_mask.png'
+        'custom_mask': './stick_masks/right_mask.png'
     }
 ]
 
@@ -46,8 +46,8 @@ PERSON_DILATE_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (40, 40))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_dir', type=str, default='./data/lab_ground_floor/trimmed_videos', help='Directory containing all the frames')
-    parser.add_argument('--output_dir', type=str, default='./data/lab_ground_floor/trimmed_videos_masks')
+    parser.add_argument('--input_dir', type=str, default='./data/lab_ground_floor/trimmed_videos', help='Directory containing all the 4 directories containing frames')
+    parser.add_argument('--output_dir', type=str, default='./data/lab_ground_floor/trimmed_videos_masks', help='Directory to save masked frames')
     
     args = parser.parse_args()
     out = args.output_dir

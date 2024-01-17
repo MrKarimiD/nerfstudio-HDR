@@ -88,6 +88,7 @@ class Nerfstudio(DataParser):
 
         image_filenames = []
         mask_filenames = []
+        saturation_mask_filenames = []
         depth_filenames = []
         poses = []
         exposures = []
@@ -155,6 +156,15 @@ class Nerfstudio(DataParser):
                     downsample_folder_prefix="masks_",
                 )
                 mask_filenames.append(mask_fname)
+            
+            if "saturation_mask_path" in frame:
+                saturation_mask_filepath = Path(frame["saturation_mask_path"])
+                saturation_mask_fname = self._get_fname(
+                    saturation_mask_filepath,
+                    data_dir,
+                    downsample_folder_prefix="saturation_masks_",
+                )
+                saturation_mask_filenames.append(saturation_mask_fname)                
 
             if "depth_file_path" in frame:
                 depth_filepath = Path(frame["depth_file_path"])
@@ -170,6 +180,12 @@ class Nerfstudio(DataParser):
         ), """
         Different number of image and mask filenames.
         You should check that mask_path is specified for every frame (or zero frames) in transforms.json.
+        """
+        assert len(saturation_mask_filenames) == 0 or (
+            len(saturation_mask_filenames) == len(image_filenames)
+        ), """
+        Different number of image and saturation mask filenames.
+        You should check that saturation_mask_path is specified for every frame (or zero frames) in transforms.json.
         """
         assert len(depth_filenames) == 0 or (
             len(depth_filenames) == len(image_filenames)
@@ -239,6 +255,7 @@ class Nerfstudio(DataParser):
         # Choose image_filenames and poses based on split, but after auto orient and scaling the poses.
         image_filenames = [image_filenames[i] for i in indices]
         mask_filenames = [mask_filenames[i] for i in indices] if len(mask_filenames) > 0 else []
+        saturation_mask_filenames = [saturation_mask_filenames[i] for i in indices] if len(saturation_mask_filenames) > 0 else []
         depth_filenames = [depth_filenames[i] for i in indices] if len(depth_filenames) > 0 else []
         exposures = [exposures[i] for i in indices] if len(exposures) > 0 else []
 
@@ -306,6 +323,7 @@ class Nerfstudio(DataParser):
             cameras=cameras,
             scene_box=scene_box,
             mask_filenames=mask_filenames if len(mask_filenames) > 0 else None,
+            saturation_mask_filenames=saturation_mask_filenames if len(saturation_mask_filenames) > 0 else None,
             exposures=exposures if len(exposures) > 0 else None,
             dataparser_scale=scale_factor,
             dataparser_transform=transform_matrix,

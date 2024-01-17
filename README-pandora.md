@@ -5,7 +5,7 @@
 ## 0. Setup
 
 ```
-
+export PYTHONPATH=$pwd:$PYTHONPATH
 pip install skylibs equilib
 ```
 
@@ -39,7 +39,8 @@ pip install skylibs equilib
 5. Extract frames using ffmpeg
 
     ```
-    python mp4_videos_to_png_frames.py
+    python lantern_scripts/mp4_videos_to_png_frames.py --help
+    python lantern_scripts/mp4_videos_to_png_frames.py --input_dir data/lab_downstairs/trimmed_videos
     ```
 
     It should output the following file structure
@@ -56,16 +57,18 @@ pip install skylibs equilib
         ....png
         ....png
         ....png
-    right_right_e1/
+    right_e2/
         ....png
         ....png
         ....png
     ```
     
-6. Run the code to mask out people and the stick. You may need to specify `--input-dir` and `--output-dir`
+6. Run the code to mask out people and the stick.
 
+    Make sure the masks in "./stick_masks" are valid
     ```
-    python lantern_scripts/mask_humans2.py
+    python lantern_scripts/mask_humans2.py --help
+    python lantern_scripts/mask_humans2.py --input_dir data/lab_downstairs/trimmed_videos
     ```
 
 
@@ -81,13 +84,23 @@ python lantern_scripts/split_synthetic_colmap.py --has_exposure --left_dir ./Dua
 Example with synthetic data:
 
 ```
+export PYTHONPATH=$pwd:$PYTHONPATH
 ns-process-data lantern --data ./Dual_Cameras/split_colmap_subset --output-dir ./Dual_Cameras/split_colmap_subset/split_colmap_out5 --skip-image-processing  --camera-type equirectangular --images-per-equirect 8 
 ```
 
 Example with real data (note that `--mask-dir` was added):
 
 ```
-ns-process-data lantern --data ./data/lab_ground_floor/trimmed_videos --mask-dir ./data/lab_ground_floor/trimmed_videos_masks --output-dir ./data/lab_ground_floor/colmap_out --skip-image-processing  --camera-type equirectangular --images-per-equirect 8 
+export PYTHONPATH=$pwd:$PYTHONPATH
+ns-process-data lantern --data ./data/lab_downstairs/captured_data --mask-dir ./data/lab_downstairs/masks --output-dir ./data/lab_downstairs/colmap_out --skip-image-processing  --camera-type equirectangular --images-per-equirect 8
+```
+
+After that, you'll need to copy manually (for now), the folder to `images`, for nerf training.
+
+Examples
+```
+ns-process-data lantern --data ./data/lab_ground_floor/trimmed_videos_smart_subset  --mask-dir ./data/lab_ground_floor/trimmed_videos_masks --output-dir ./data/lab_ground_floor/colmap_out_smart --skip-image-processing  --camera-type equirectangular --images-per
+-equirect 8 --skip-colmap --skip-perspective-transform
 ```
 
 ## 2. Pre-training NeRF
@@ -100,8 +113,15 @@ After convergence, go to the next step.
 ns-train lantern-nerfacto --help
 ```
 
+If you need to use less frames, add this argument: `--pipeline.datamanager.train-num-images-to-sample-from 200 --pipeline.datamanager.eval-num-images-to-sample-from 30`
+
 > Thing to keep in mind: the way Nerfstudio splits train and test images may not be optimal: left might be in one dataset and right in another... that's a bit of a data leak.
 
+Examples
+
+```
+ns-train lantern-nerfacto --data data/lab_ground_floor/colmap_out_smart --pipeline.datamanager.train-num-images-to-sample-from 200 --pipeline.datamanager.eval-num-images-to-sample-from 30
+```
 
 ## 3. Running MomoNet
 

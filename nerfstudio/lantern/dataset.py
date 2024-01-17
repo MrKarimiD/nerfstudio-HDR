@@ -111,6 +111,13 @@ class HDRInputDataset(InputDataset):
                 data["mask"].shape[:2] == data["image"].shape[:2]
             ), f"Mask and image have different shapes. Got {data['mask'].shape[:2]} and {data['image'].shape[:2]}"
         
+        if self._dataparser_outputs.saturation_mask_filenames is not None:
+            saturation_mask_filepath = self._dataparser_outputs.saturation_mask_filenames[image_idx]
+            data["saturation_mask"] = get_image_mask_tensor_from_path(filepath=saturation_mask_filepath, scale_factor=self.scale_factor)
+            assert (
+                data["saturation_mask"].shape[:2] == data["image"].shape[:2]
+            ), f"Saturation mask and image have different shapes. Got {data['saturation_mask'].shape[:2]} and {data['image'].shape[:2]}"
+
         if self._dataparser_outputs.exposures is not None:
             exposure_value = self._dataparser_outputs.exposures[image_idx]
             data["exposure"] = exposure_value

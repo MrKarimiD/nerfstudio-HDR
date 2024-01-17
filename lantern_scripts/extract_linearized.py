@@ -8,7 +8,10 @@ import numpy as np
 # fonction that apply the correction on the colors on the input images
 
 
-def apply_correction(coefs, img, CORRECTION_CURVE_TYPE) -> np.array:
+def apply_correction(coefs, img, CORRECTION_CURVE_TYPE) -> np.ndarray:
+    # check that img is in range 0-255
+    assert img.dtype == np.uint8
+    
     B, G, R = coefs
     original_shape = img.shape
     img = img.astype(np.float32)

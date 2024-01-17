@@ -1,7 +1,6 @@
-import subprocess
-import os
 import argparse
-
+import os
+import subprocess
 
 # TODO: limit number of frames... maybe 3 per second?
 
@@ -13,10 +12,13 @@ if __name__ == '__main__':
     # get video files
     args = argparser.parse_args()
     videos = [os.path.join(args.input_dir, f) for f in os.listdir(args.input_dir) if f.endswith(".mp4")]
+    if len(videos) == 0:
+        raise Exception("No video files found in input directory.")
 
     for video in videos:
         # Get the video name without extension
         video_name = os.path.splitext(os.path.basename(video))[0]
+        print(f"Extracting frames from {video}...")
 
         # Create a subfolder for the frames
         output_folder = os.path.join(args.input_dir, f'{video_name}')
@@ -29,7 +31,7 @@ if __name__ == '__main__':
             "-vf", "fps=29.97",
             f"{output_folder}/output_%04d.png"
         ]
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         # only keep frames where mod 10 = 0
         for file in os.listdir(output_folder):
