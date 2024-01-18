@@ -320,13 +320,14 @@ class LanternModel(NerfactoModel):
             gt_image=image,
         )
 
-        # MSE loss for mask with weights
-        mask_in_float = batch['mask'].type(torch.float).to(self.device)
-        negative_mask_in_float = torch.ones(mask_in_float.shape).to(self.device) - mask_in_float
-        loss_mask_fast_expo = (mask1_w * (( negative_mask_in_float - torch.unsqueeze(outputs["validity_f"], 1)) ** 2)).mean()
-        loss_mask_well_expo = (mask2_w * (( mask_in_float - torch.unsqueeze(outputs["validity_w"], 1)) ** 2)).mean()
-        loss_dict["validity_loss_well_exposed"] = loss_mask_well_expo
-        loss_dict["validity_loss_fast_exposure"] = loss_mask_fast_expo
+        if "mask" in batch:
+            # MSE loss for mask with weights
+            mask_in_float = batch['mask'].type(torch.float).to(self.device)
+            negative_mask_in_float = torch.ones(mask_in_float.shape).to(self.device) - mask_in_float
+            loss_mask_fast_expo = (mask1_w * (( negative_mask_in_float - torch.unsqueeze(outputs["validity_f"], 1)) ** 2)).mean()
+            loss_mask_well_expo = (mask2_w * (( mask_in_float - torch.unsqueeze(outputs["validity_w"], 1)) ** 2)).mean()
+            loss_dict["validity_loss_well_exposed"] = loss_mask_well_expo
+            loss_dict["validity_loss_fast_exposure"] = loss_mask_fast_expo
 
         if weights_for_RGB_loss is not None:
             loss_dict["rgb_loss"] = (weights_for_RGB_loss * ((gt_rgb - pred_rgb) ** 2)).mean()

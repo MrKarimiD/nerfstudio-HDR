@@ -549,16 +549,20 @@ class RenderInterpolated(BaseRender):
 
         install_checks.check_ffmpeg_installed()
 
+        output_names = []
         if self.pose_source == "eval":
             assert pipeline.datamanager.eval_dataset is not None
             cameras = pipeline.datamanager.eval_dataset.cameras
+            for file_name in pipeline.datamanager.eval_dataset.image_filenames:
+                output_names.append(file_name.stem)
         else:
             assert pipeline.datamanager.train_dataset is not None
             cameras = pipeline.datamanager.train_dataset.cameras
+            for file_name in pipeline.datamanager.train_dataset.image_filenames:
+                output_names.append(file_name.stem)
 
-        output_names = []
-        for file_name in pipeline.datamanager.train_dataset.image_filenames:
-            output_names.append(file_name.stem)
+        
+        
         seconds = self.interpolation_steps * len(cameras) / self.frame_rate
         camera_path = get_interpolated_camera_path(
             cameras=cameras,
