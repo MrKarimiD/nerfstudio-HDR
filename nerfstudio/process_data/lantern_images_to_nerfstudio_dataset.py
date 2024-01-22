@@ -86,6 +86,8 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
 
     skip_compactness_constraint: bool = False
 
+    skip_autocenter_constraint: bool = False
+
     capture_settings_file_name: str = "capture_settings.json"
 
     skip_linearization: bool = False
@@ -263,13 +265,13 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                 frame_idx = int(matches.group(2))
                 crop_direction = int(matches.group(3))
                 if crop_direction not in grouped_frames[sequence_name].keys():
-                    grouped_frames[sequence_name][crop_direction] = []
+                    grouped_frames[sequence_name][crop_direction] = dict()
                 updated_frame = deepcopy(frame)
                 # change frame's file_path, which looks like images/left_colmap_baseline/000000_0_0.png to images/left_colmap_baseline/planar_projections/000000_0.png
                 # also change frame's mask_path, which looks like mask/left_colmap_baseline/000000_0_0.png to images/left_colmap_baseline/mask_planar_projections/000000_0.png
                 updated_frame["file_path"] = updated_frame["file_path"].replace(f'images/{sequence_name}/', f'images/{sequence_name}/planar_projections/')
                 updated_frame["mask_path"] = updated_frame["mask_path"].replace(f'masks/{sequence_name}/', f'images/{sequence_name}/mask_planar_projections/')
-                grouped_frames[sequence_name][crop_direction].append(updated_frame)
+                grouped_frames[sequence_name][crop_direction][frame_idx] = updated_frame
             else:
                 # warning
                 print(f'Warning: {frame["file_path"]} does not match regex')
@@ -280,25 +282,27 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
             json.dump(grouped_frames, f, indent=4)
 
 
-        thresh = 0.05
+        thresh = 0.02
         COMPACTNESS_THRESHOLDS = {
             'left_colmap_baseline': thresh,
             'right_colmap_baseline': thresh,
             'left_e1': thresh,
         }
-        deleted_frames = dict()
+        deleted_panoramic_frame_indices = dict()
         for sequence_name in ['left_colmap_baseline', 'right_colmap_baseline', 'left_e1']:
-            deleted_frames[sequence_name] = []
+            deleted_panoramic_frame_indices[sequence_name] = []
         if not self.skip_compactness_constraint:
             for sequence_name in ['left_colmap_baseline', 'right_colmap_baseline', 'left_e1']:
                 panoramic_frame_count = len(grouped_frames[sequence_name][1])
                 print(f'panoramic_frame_count: {panoramic_frame_count}')
-                panoramic_frames = [ [] for _ in range(panoramic_frame_count) ]
+                panoramic_frames = dict()
                 for crop_direction in grouped_frames[sequence_name].keys():
-                    for i, frame in enumerate(grouped_frames[sequence_name][crop_direction]):
+                    for i, frame in grouped_frames[sequence_name][crop_direction].items():
+                        if i not in panoramic_frames.keys():
+                            panoramic_frames[i] = []
                         panoramic_frames[i].append(frame)
                 
-                for i, panoramic_frame in enumerate(panoramic_frames):
+                for i, panoramic_frame in panoramic_frames.items():
                     camera_center_mean = np.mean([np.array(frame['transform_matrix'])[0:3, 3] for frame in panoramic_frame], axis=0)
                     camera_distances = [np.linalg.norm(np.array(frame['transform_matrix'])[0:3, 3] - camera_center_mean) for frame in panoramic_frame]
                     camera_center_std = np.std(camera_distances)
@@ -306,17 +310,44 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                     print(f'norm_camera_center_std: {norm_camera_center_std}')
                     if norm_camera_center_std > COMPACTNESS_THRESHOLDS[sequence_name]:
                         print(f'Warning: norm_camera_center_std {norm_camera_center_std} > COMPACTNESS_THRESHOLDS[{sequence_name}] {COMPACTNESS_THRESHOLDS[sequence_name]}')
-                        deleted_frames[sequence_name] += panoramic_frame
+                        deleted_panoramic_frame_indices[sequence_name].append(i)
 
                 if sequence_name == 'left_e1':
                     # delete from grouped_frames
-                    for frame in deleted_frames[sequence_name]:
+                    for frame_idx in deleted_panoramic_frame_indices[sequence_name]:
                         for crop_direction in grouped_frames[sequence_name].keys():
                             try:
-                                grouped_frames[sequence_name][crop_direction].remove(frame)
-                            except ValueError:
-                                pass
+                                del grouped_frames[sequence_name][crop_direction][frame_idx]
+                            except KeyError:
+                                print(f'KeyError, frame_idx: {frame_idx}, crop_direction: {crop_direction}')
 
+        if not self.skip_autocenter_constraint:
+            for sequence_name in ['left_colmap_baseline', 'right_colmap_baseline', 'left_e1']:
+                panoramic_frames = dict()
+                for crop_direction in grouped_frames[sequence_name].keys():
+                    for i, frame in grouped_frames[sequence_name][crop_direction].items():
+                        if i not in panoramic_frames.keys():
+                            panoramic_frames[i] = dict()
+                        panoramic_frames[i][crop_direction] = frame
+
+                for i, panoramic_frame in panoramic_frames.items():
+                    camera_center_mean = np.mean([np.array(frame['transform_matrix'])[0:3, 3] for frame in panoramic_frame.values()], axis=0)
+                    # set all the camera centers to the mean
+                    for frame in panoramic_frame.values():
+                        
+                        # frame['transform_matrix'][0:3, 3] = camera_center_mean
+                        # to numpy
+                        transform_matrix = np.array(frame['transform_matrix'])
+                        transform_matrix[0:3, 3] = camera_center_mean
+                        # to list
+                        frame['transform_matrix'] = transform_matrix.tolist()
+
+
+                # update grouped_frames
+                for crop_direction in grouped_frames[sequence_name].keys():
+                    for i, frame in grouped_frames[sequence_name][crop_direction].items():
+                        frame['transform_matrix'] = panoramic_frames[i][crop_direction]['transform_matrix']
+                        
 
         # group 3 is empty, we want to infer its transform
         grouped_frames['right_e2'] = dict()
@@ -325,34 +356,44 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                 print(f'Warning: no left_colmap_baseline or right_colmap_baseline for crop_direction {crop_direction}')
                 continue
             
-            # for frame_idx in range(len(grouped_frames['left_colmap_baseline'][crop_direction])):
-            #     print(f'crop_direction: {crop_direction}, frame_idx: {frame_idx}')
-            #     if grouped_frames['left_colmap_baseline'][crop_direction][frame_idx] in deleted_frames['left_colmap_baseline']:
-            #         continue
-            #     if grouped_frames['right_colmap_baseline'][crop_direction][frame_idx] in deleted_frames['right_colmap_baseline']:
-            #         continue
-            #     group_0_tranform = np.array(grouped_frames['left_colmap_baseline'][crop_direction][frame_idx]['transform_matrix'])
-            #     group_1_tranform = np.array(grouped_frames['right_colmap_baseline'][crop_direction][frame_idx]['transform_matrix'])
-            #     
-            #     basis_change = np.linalg.inv(group_0_tranform) @ group_1_tranform
+            total_basis_change = np.zeros((4, 4))
+            basis_change_count = 0
+            for frame_idx in grouped_frames['left_colmap_baseline'][crop_direction].keys():
+                print(f'crop_direction: {crop_direction}, frame_idx: {frame_idx}')
+                if frame_idx in deleted_panoramic_frame_indices['left_colmap_baseline']:
+                    continue
+                if frame_idx in deleted_panoramic_frame_indices['right_colmap_baseline']:
+                    continue
+                if frame_idx not in grouped_frames['right_colmap_baseline'][crop_direction].keys():
+                    print(f'Warning: no right_colmap_baseline for crop_direction {crop_direction}, frame_idx {frame_idx}')
+                    continue
+                
+                group_0_tranform = np.array(grouped_frames['left_colmap_baseline'][crop_direction][frame_idx]['transform_matrix'])
+                group_1_tranform = np.array(grouped_frames['right_colmap_baseline'][crop_direction][frame_idx]['transform_matrix'])
+                
+                basis_change = np.linalg.inv(group_0_tranform) @ group_1_tranform
+                total_basis_change += basis_change
+                basis_change_count += 1
+            
+            basis_change = total_basis_change / basis_change_count
 
-            group_0_tranform = np.array(grouped_frames['left_colmap_baseline'][crop_direction][0]['transform_matrix'])
-            group_1_tranform = np.array(grouped_frames['right_colmap_baseline'][crop_direction][0]['transform_matrix'])
-            basis_change = np.linalg.inv(group_0_tranform) @ group_1_tranform
+            # group_0_tranform = np.array(grouped_frames['left_colmap_baseline'][crop_direction][0]['transform_matrix'])
+            # group_1_tranform = np.array(grouped_frames['right_colmap_baseline'][crop_direction][0]['transform_matrix'])
+            # basis_change = np.linalg.inv(group_0_tranform) @ group_1_tranform
 
             # sometimes, colmap omits frames, so if a frame doesn't have the left_e1 pose, we can't infer the right_e2 pose
             if grouped_frames['left_e1'].get(crop_direction):
-                for frame in grouped_frames['left_e1'][crop_direction]:
+                for frame_idx, frame in grouped_frames['left_e1'][crop_direction].items():
                     
                     # apply group_3_tranform to frame, put it in group 3
                     group_3_frame_transform = (np.array(frame['transform_matrix']) @ basis_change).tolist()
                     if crop_direction not in grouped_frames['right_e2'].keys():
-                        grouped_frames['right_e2'][crop_direction] = []
-                    grouped_frames['right_e2'][crop_direction].append({
+                        grouped_frames['right_e2'][crop_direction] = dict()
+                    grouped_frames['right_e2'][crop_direction][frame_idx] = {
                         'file_path': frame['file_path'].replace('left_e1', 'right_e2').replace('lhs', 'rhs'), # TODO validate file naming convention
                         'transform_matrix': group_3_frame_transform,
                         'mask_path': frame['mask_path'].replace('left_e1', 'right_e2').replace('lhs', 'rhs'), # TODO validate file naming convention
-                    })
+                    }
             else:
                 # warning
                 print(f'Warning: no left_e1 for crop_direction {crop_direction}')
@@ -367,7 +408,7 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                 if crop_direction not in grouped_frames[sequence_name].keys():
                     print(f'Warning: no {sequence_name} for crop_direction {crop_direction}')
                     continue
-                new_transforms['frames'] += grouped_frames[sequence_name][crop_direction]
+                new_transforms['frames'] += grouped_frames[sequence_name][crop_direction].values()
                 
 
         # linearization
@@ -381,14 +422,15 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                     if crop_direction not in grouped_frames[sequence_name].keys():
                         print(f'Warning: no {sequence_name} for crop_direction {crop_direction}')
                         continue
-                    for frame in grouped_frames[sequence_name][crop_direction]:
+                    for frame in grouped_frames[sequence_name][crop_direction].values():
                         print(os.path.join(self.output_dir, frame['file_path']))
                         img = cv2.imread(os.path.join(self.output_dir, frame['file_path']))
-                        img = apply_correction((data["B"], data["G"], data["R"]), img, CORRECTION_CURVE_TYPE)
+                        cv2.imwrite(os.path.join(self.output_dir, frame['file_path'].replace('.png', '_nonlinear.exr')), img.astype(np.float32) / 255)
+                        img_corrected = apply_correction((data["B"], data["G"], data["R"]), img, CORRECTION_CURVE_TYPE)
                         print(os.path.join(self.output_dir, frame['file_path'].replace('.png', '_linear.exr')))
                         
-                        img /= 255
-                        exposed_img = img * self.exposure1 if sequence_name == 'left_e1' else img / self.exposure2
+                        img_corrected /= 255
+                        exposed_img = img_corrected * self.exposure1 if sequence_name == 'left_e1' else img_corrected / self.exposure2
                         cv2.imwrite(os.path.join(self.output_dir, frame['file_path'].replace('.png', '_linear.exr')), exposed_img)
 
                         #frame['file_path'] = frame['file_path'].replace('.png', '_linear.exr')
@@ -400,7 +442,7 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                     if crop_direction not in grouped_frames[sequence_name].keys():
                         print(f'Warning: no {sequence_name} for crop_direction {crop_direction}')
                         continue
-                    for frame in grouped_frames[sequence_name][crop_direction]:
+                    for frame in grouped_frames[sequence_name][crop_direction].values():
                         img = cv2.imread(os.path.join(self.output_dir, frame['file_path']))
                         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                         img = img.astype(np.float32) / 255.0
@@ -426,14 +468,14 @@ class LanternImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
 
         # generate new transforms.json
         new_transforms['frames'] = []
-        #for sequence_name in ['left_e1']:#, 'right_e2']:
-        for sequence_name in ['left_e1', 'right_e2']:
+        for sequence_name in ['left_e1']:#, 'right_e2']:
+        # for sequence_name in ['left_e1', 'right_e2']:
         # for sequence_name in ['left_colmap_baseline', 'right_colmap_baseline']:
             for i, crop_direction in enumerate(range(self.images_per_equirect)):
                 if crop_direction not in grouped_frames[sequence_name].keys():
                     print(f'Warning: no {sequence_name} for crop_direction {crop_direction}')
                     continue
-                new_transforms['frames'] += grouped_frames[sequence_name][crop_direction]
+                new_transforms['frames'] += grouped_frames[sequence_name][crop_direction].values()
 
         
 
