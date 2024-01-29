@@ -97,14 +97,14 @@ class PixelSampler:
             mask: mask of possible pixels in an image to sample from.
         """
         # TODO Defining a flag for sampling even when there is a mask 
-        if isinstance(mask, torch.Tensor):
+        if isinstance(mask, torch.Tensor) and mask.shape[0] >= 4:
             # mask size: batch * h * w * 1
             # Init state, cache masks indices.
             if self.states_of_mask == 0:    
                 with profiler.time_function("mask squeeze: whole"):
                     mask = mask.squeeze(-1)
                 num_masks = mask.shape[0]
-                size_of_disk = 100
+                size_of_disk = 2
                 num_disks = ceil(num_masks / size_of_disk)
                 # slice mask to 100 disk
                 random_idx_disk = int(torch.randint(0, num_disks, (1,)))
