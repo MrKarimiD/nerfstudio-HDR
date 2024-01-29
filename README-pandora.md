@@ -99,8 +99,7 @@ After that, you'll need to copy manually (for now), the folder to `images`, for 
 
 Examples
 ```
-ns-process-data lantern --data ./data/lab_ground_floor/trimmed_videos_smart_subset  --mask-dir ./data/lab_ground_floor/trimmed_videos_masks --output-dir ./data/lab_ground_floor/colmap_out_smart --skip-image-processing  --camera-type equirectangular --images-per
--equirect 8 --skip-colmap --skip-perspective-transform
+ns-process-data lantern --data ./data/lab_ground_floor/trimmed_videos_smart_subset  --mask-dir ./data/lab_ground_floor/trimmed_videos_masks --output-dir ./data/lab_ground_floor/colmap_out_smart --skip-image-processing  --camera-type equirectangular --images-per-equirect 8 --skip-colmap --skip-perspective-transform
 ```
 
 ## 2. Pre-training NeRF
@@ -120,7 +119,7 @@ If you need to use less frames, add this argument: `--pipeline.datamanager.train
 Examples
 
 ```
-ns-train lantern-nerfacto --data data/lab_ground_floor/colmap_out_smart --pipeline.datamanager.train-num-images-to-sample-from 200 --pipeline.datamanager.eval-num-images-to-sample-from 30
+ns-train lantern-nerfacto --data data/lab_ground_floor/colmap_out_smart --pipeline.datamanager.eval-num-images-to-sample-from 0
 ```
 
 ## 3. Running MomoNet
