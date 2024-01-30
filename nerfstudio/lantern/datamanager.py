@@ -3,15 +3,22 @@ Lantern HDR DataManager
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Literal, Tuple, Type, Union
+from typing import Type
 
-import torch
-
-from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.data.datamanagers.base_datamanager import (
-    VanillaDataManager, VanillaDataManagerConfig)
-from nerfstudio.lantern.dataset import HDRInputDataset
+    VanillaDataManager,
+    VanillaDataManagerConfig,
+)
+from nerfstudio.lantern.dataset import HDRInputDataset, HDRNerfactoInputDataset
 
+
+@dataclass
+class HDRNerfactoDataManagerConfig(VanillaDataManagerConfig):
+    """A HDR data manager, based on VanillaDataManager"""
+
+    _target: Type = field(default_factory=lambda: VanillaDataManager[HDRNerfactoInputDataset])
+    """Target class to instantiate."""
+    
 
 @dataclass
 class HDRVanillaDataManagerConfig(VanillaDataManagerConfig):

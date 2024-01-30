@@ -16,18 +16,17 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Optional, Type
-import os
+
 os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
 
 
+import cv2
 import numpy as np
 import torch
-from PIL import Image
-import cv2
-
 
 from nerfstudio.cameras import camera_utils
 from nerfstudio.cameras.cameras import CAMERA_MODEL_TO_TYPE, Cameras, CameraType
@@ -294,6 +293,7 @@ class Nerfstudio(DataParser):
         else:
             distortion_params = torch.stack(distort, dim=0)[idx_tensor]
 
+        exposure_tensor = torch.tensor([exposures], dtype=torch.float32).T
         cameras = Cameras(
             fx=fx,
             fy=fy,
@@ -304,6 +304,9 @@ class Nerfstudio(DataParser):
             width=width,
             camera_to_worlds=poses[:, :3, :4],
             camera_type=camera_type,
+            metadata={
+                'exposures': exposure_tensor
+            }
         )
 
         assert self.downscale_factor is not None

@@ -40,7 +40,7 @@ from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.base_field import Field, get_normalized_directions
 
 
-class NerfactoField(Field):
+class HdrNerfactoField(Field):
     """Compound Field that uses TCNN
 
     Args:
@@ -108,9 +108,9 @@ class NerfactoField(Field):
 
         self.spatial_distortion = spatial_distortion
         self.num_images = num_images
-        self.appearance_embedding_dim = appearance_embedding_dim
-        self.embedding_appearance = Embedding(self.num_images, self.appearance_embedding_dim)
-        self.use_average_appearance_embedding = use_average_appearance_embedding
+        # self.appearance_embedding_dim = appearance_embedding_dim
+        # self.embedding_appearance = Embedding(self.num_images, self.appearance_embedding_dim)
+        # self.use_average_appearance_embedding = use_average_appearance_embedding
         self.use_transient_embedding = use_transient_embedding
         self.use_semantics = use_semantics
         self.use_pred_normals = use_pred_normals
@@ -191,14 +191,27 @@ class NerfactoField(Field):
             self.field_head_pred_normals = PredNormalsFieldHead(in_dim=self.mlp_pred_normals.get_out_dim())
 
         self.mlp_head = MLP(
-            in_dim=self.direction_encoding.get_out_dim() + self.geo_feat_dim + self.appearance_embedding_dim,
+            in_dim=self.direction_encoding.get_out_dim() + self.geo_feat_dim,
             num_layers=num_layers_color,
             layer_width=hidden_dim_color,
             out_dim=3,
             activation=nn.ReLU(),
-            out_activation=nn.Sigmoid(),
+            out_activation=None,
             implementation=implementation,
         )
+
+        # HDR NeRF, 1 MLP per channel
+        self.crf_mlps = nn.ModuleList([
+            MLP(in_dim=1,
+                num_layers=2,
+                layer_width=128,
+                out_dim=1,
+                activation=nn.ReLU(),
+                out_activation=nn.Sigmoid(),
+                implementation=implementation,
+            ) for _ in range(3)
+        ])
+
 
     def get_density(self, ray_samples: RaySamples) -> Tuple[Tensor, Tensor]:
         """Computes and returns the densities."""
@@ -229,6 +242,13 @@ class NerfactoField(Field):
     def get_outputs(
         self, ray_samples: RaySamples, density_embedding: Optional[Tensor] = None
     ) -> Dict[FieldHeadNames, Tensor]:
+        
+        if ray_samples.metadata is None or 'exposures' not in ray_samples.metadata.keys():
+            exposures = torch.ones(ray_samples.frustums.directions.shape[:-1], device=ray_samples.frustums.directions.device)[..., None]
+        else:
+            exposures = ray_samples.metadata['exposures'].to(ray_samples.frustums.directions.device)
+        exposures = exposures.reshape(-1, 1).clone().detach() / 200
+
         assert density_embedding is not None
         outputs = {}
         if ray_samples.camera_indices is None:
@@ -240,18 +260,18 @@ class NerfactoField(Field):
 
         outputs_shape = ray_samples.frustums.directions.shape[:-1]
 
-        # appearance
-        if self.training:
-            embedded_appearance = self.embedding_appearance(camera_indices)
-        else:
-            if self.use_average_appearance_embedding:
-                embedded_appearance = torch.ones(
-                    (*directions.shape[:-1], self.appearance_embedding_dim), device=directions.device
-                ) * self.embedding_appearance.mean(dim=0)
-            else:
-                embedded_appearance = torch.zeros(
-                    (*directions.shape[:-1], self.appearance_embedding_dim), device=directions.device
-                )
+        # # appearance
+        # if self.training:
+        #     embedded_appearance = self.embedding_appearance(camera_indices)
+        # else:
+        #     if self.use_average_appearance_embedding:
+        #         embedded_appearance = torch.ones(
+        #             (*directions.shape[:-1], self.appearance_embedding_dim), device=directions.device
+        #         ) * self.embedding_appearance.mean(dim=0)
+        #     else:
+        #         embedded_appearance = torch.zeros(
+        #             (*directions.shape[:-1], self.appearance_embedding_dim), device=directions.device
+        #         )
 
         # transients
         if self.use_transient_embedding and self.training:
@@ -291,11 +311,28 @@ class NerfactoField(Field):
             [
                 d,
                 density_embedding.view(-1, self.geo_feat_dim),
-                embedded_appearance.view(-1, self.appearance_embedding_dim),
+                # embedded_appearance.view(-1, self.appearance_embedding_dim),
             ],
             dim=-1,
         )
-        rgb = self.mlp_head(h).view(*outputs_shape, -1).to(directions)
-        outputs.update({FieldHeadNames.RGB: rgb})
+        log_rgb_hdr = self.mlp_head(h) # .view(*outputs_shape, -1).to(directions)
+        rgb_hdr = torch.exp(log_rgb_hdr).view(*outputs_shape, -1).to(directions)
+        log_rgb_hdr_exposed = log_rgb_hdr + torch.log(exposures)
+
+        pred_rgb_ldr = torch.cat([
+            self.crf_mlps[channel](log_rgb_hdr_exposed[..., channel:channel+1]) for channel in range(3)
+        ], dim=-1)
+        pred_rgb_ldr = pred_rgb_ldr.view(*outputs_shape, -1).to(directions)
+
+        zero_radiance_crf = torch.cat([
+            self.crf_mlps[channel](torch.zeros((1, 1), requires_grad=False, device=log_rgb_hdr_exposed.device)) for channel in range(3)
+        ], dim=-1)
+        zero_radiance_crf = zero_radiance_crf.expand(pred_rgb_ldr.shape).to(directions)
+
+        outputs.update({
+            FieldHeadNames.RGB: pred_rgb_ldr,
+            FieldHeadNames.RGB_HDR: rgb_hdr,
+            FieldHeadNames.ZERO_RADIANCE_CRF: zero_radiance_crf,
+        })
 
         return outputs

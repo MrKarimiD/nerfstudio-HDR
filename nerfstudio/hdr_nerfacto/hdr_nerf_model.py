@@ -29,21 +29,32 @@ from torchmetrics.image import PeakSignalNoiseRatio
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 from nerfstudio.cameras.rays import RayBundle, RaySamples
-from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes, TrainingCallbackLocation
+from nerfstudio.engine.callbacks import (
+    TrainingCallback,
+    TrainingCallbackAttributes,
+    TrainingCallbackLocation,
+)
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.density_fields import HashMLPDensityField
-from nerfstudio.fields.nerfacto_field import NerfactoField
+from nerfstudio.hdr_nerfacto.hdr_nerf_field import HdrNerfactoField
 from nerfstudio.model_components.losses import (
     MSELoss,
     distortion_loss,
-    interlevel_loss,
     orientation_loss,
     pred_normal_loss,
     scale_gradients_by_distance_squared,
 )
-from nerfstudio.model_components.ray_samplers import ProposalNetworkSampler, UniformSampler
-from nerfstudio.model_components.renderers import AccumulationRenderer, DepthRenderer, NormalsRenderer, RGBRenderer
+from nerfstudio.model_components.ray_samplers import (
+    ProposalNetworkSampler,
+    UniformSampler,
+)
+from nerfstudio.model_components.renderers import (
+    AccumulationRenderer,
+    DepthRenderer,
+    NormalsRenderer,
+    RGBRenderer,
+)
 from nerfstudio.model_components.scene_colliders import NearFarCollider
 from nerfstudio.model_components.shaders import NormalsShader
 from nerfstudio.models.base_model import Model, ModelConfig
@@ -51,10 +62,10 @@ from nerfstudio.utils import colormaps
 
 
 @dataclass
-class NerfactoModelConfig(ModelConfig):
+class HdrNerfactoModelConfig(ModelConfig):
     """Nerfacto Model Config"""
 
-    _target: Type = field(default_factory=lambda: NerfactoModel)
+    _target: Type = field(default_factory=lambda: HdrNerfactoModel)
     near_plane: float = 0.05
     """How far along the ray to start sampling."""
     far_plane: float = 1000.0
@@ -127,15 +138,19 @@ class NerfactoModelConfig(ModelConfig):
     appearance_embed_dim: int = 32
     """Dimension of the appearance embedding."""
 
+    # HDR-Nerfacto
+    unit_exposure_loss_mult: float = 0.5
+    unit_exposure_expected_value: float = 0.5
 
-class NerfactoModel(Model):
+
+class HdrNerfactoModel(Model):
     """Nerfacto model
 
     Args:
         config: Nerfacto configuration to instantiate model
     """
 
-    config: NerfactoModelConfig
+    config: HdrNerfactoModelConfig
 
     def populate_modules(self):
         """Set the fields and modules."""
@@ -147,7 +162,7 @@ class NerfactoModel(Model):
             scene_contraction = SceneContraction(order=float("inf"))
 
         # Fields
-        self.field = NerfactoField(
+        self.field = HdrNerfactoField(
             self.scene_box.aabb,
             hidden_dim=self.config.hidden_dim,
             num_levels=self.config.num_levels,
@@ -228,6 +243,7 @@ class NerfactoModel(Model):
 
         # losses
         self.rgb_loss = MSELoss()
+        self.unit_exposure_loss = MSELoss()
 
         # metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
@@ -289,10 +305,17 @@ class NerfactoModel(Model):
         depth = self.renderer_depth(weights=weights, ray_samples=ray_samples)
         accumulation = self.renderer_accumulation(weights=weights)
 
+        # HDR-Nerfacto
+        rgb_hdr = self.renderer_rgb(
+            rgb=field_outputs[FieldHeadNames.RGB_HDR], weights=weights
+        )
+
         outputs = {
             "rgb": rgb,
             "accumulation": accumulation,
             "depth": depth,
+            "rgb_hdr": rgb_hdr,
+            "zero_radiance_crf": field_outputs[FieldHeadNames.ZERO_RADIANCE_CRF],
         }
 
         if self.config.predict_normals:
@@ -341,23 +364,27 @@ class NerfactoModel(Model):
             gt_image=image,
         )
 
-        loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
-        if self.training:
-            loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
-                outputs["weights_list"], outputs["ray_samples_list"]
-            )
-            assert metrics_dict is not None and "distortion" in metrics_dict
-            loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
-            if self.config.predict_normals:
-                # orientation loss for computed normals
-                loss_dict["orientation_loss"] = self.config.orientation_loss_mult * torch.mean(
-                    outputs["rendered_orientation_loss"]
-                )
+        loss_dict["unit_exposure_loss"] = self.config.unit_exposure_loss_mult * self.unit_exposure_loss(
+            outputs["zero_radiance_crf"], torch.ones_like(outputs["zero_radiance_crf"], requires_grad=False) * self.config.unit_exposure_expected_value
+        )
 
-                # ground truth supervision for normals
-                loss_dict["pred_normal_loss"] = self.config.pred_normal_loss_mult * torch.mean(
-                    outputs["rendered_pred_normal_loss"]
-                )
+        loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
+        # if self.training:
+        #     loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
+        #         outputs["weights_list"], outputs["ray_samples_list"]
+        #     )
+        #     assert metrics_dict is not None and "distortion" in metrics_dict
+        #     loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
+        #     if self.config.predict_normals:
+        #         # orientation loss for computed normals
+        #         loss_dict["orientation_loss"] = self.config.orientation_loss_mult * torch.mean(
+        #             outputs["rendered_orientation_loss"]
+        #         )
+# 
+        #         # ground truth supervision for normals
+        #         loss_dict["pred_normal_loss"] = self.config.pred_normal_loss_mult * torch.mean(
+        #             outputs["rendered_pred_normal_loss"]
+        #         )
         return loss_dict
 
     def get_image_metrics_and_images(

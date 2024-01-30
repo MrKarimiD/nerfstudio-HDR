@@ -41,6 +41,10 @@ class FieldHeadNames(Enum):
     SDF = "sdf"
     ALPHA = "alpha"
     GRADIENT = "gradient"
+    
+    RGB_HDR = "rgb_hdr"                        # HDR-Nerfacto
+    PRED_RGB_LDR = "pred_rgb_ldr"              # HDR-Nerfacto
+    ZERO_RADIANCE_CRF = "zero_radiance_crf"    # HDR-Nerfacto
 
 
 class FieldHead(FieldComponent):
