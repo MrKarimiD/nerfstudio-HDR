@@ -45,6 +45,9 @@ from nerfstudio.process_data.lantern_images_to_nerfstudio_dataset import (
 from nerfstudio.process_data.aligned_pano2plane import (
     ProcessAlignedPano
 )
+from nerfstudio.process_data.openSFM_to_nerfstudio import (
+    OpenSFMToNeRFStudioDataset
+)
 
 from nerfstudio.process_data.video_to_nerfstudio_dataset import VideoToNerfstudioDataset
 from nerfstudio.utils.rich_utils import CONSOLE
@@ -406,6 +409,7 @@ Commands = Union[
     Annotated[ProcessRecord3D, tyro.conf.subcommand(name="record3d")],
     Annotated[ProcessAlignedPano, tyro.conf.subcommand(name="aligned_pano2plane")],
     Annotated[LanternImagesToNerfstudioDataset, tyro.conf.subcommand(name="lantern")],
+    Annotated[OpenSFMToNeRFStudioDataset, tyro.conf.subcommand(name="lantern-openSFM")],
 ]
 
 

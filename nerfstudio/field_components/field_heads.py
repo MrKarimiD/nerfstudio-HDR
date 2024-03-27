@@ -41,7 +41,8 @@ class FieldHeadNames(Enum):
     SDF = "sdf"
     ALPHA = "alpha"
     GRADIENT = "gradient"
-
+    VALIDITY = 'validity'
+    RGB_FAST = 'rgb_fast'
 
 class FieldHead(FieldComponent):
     """Base field output

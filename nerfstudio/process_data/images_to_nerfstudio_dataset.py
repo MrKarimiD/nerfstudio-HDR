@@ -60,6 +60,11 @@ class ImagesToNerfstudioDataset(ColmapConverterToNerfstudioDataset):
                 is_HDR=self.is_HDR, HDR_planar_image_size=pers_size_hdr
             )
             self.camera_type = "perspective"
+        else:
+            # make all none
+            perspective_masks = None
+            perspective_hdrs = None
+            
 
         summary_log = []
 

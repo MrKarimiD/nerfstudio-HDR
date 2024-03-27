@@ -27,6 +27,7 @@ from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.field_components.activations import trunc_exp
 from nerfstudio.field_components.embedding import Embedding
 from nerfstudio.field_components.encodings import HashEncoding, NeRFEncoding, SHEncoding
+from nerfstudio.field_components.encodings import Encoding, Identity
 from nerfstudio.field_components.field_heads import (
     FieldHeadNames,
     PredNormalsFieldHead,
@@ -96,6 +97,8 @@ class NerfactoField(Field):
         use_average_appearance_embedding: bool = False,
         spatial_distortion: Optional[SpatialDistortion] = None,
         implementation: Literal["tcnn", "torch"] = "tcnn",
+        use_appearance_embedding: bool = True,
+        predicts_validity: bool = True,
     ) -> None:
         super().__init__()
 
@@ -116,16 +119,18 @@ class NerfactoField(Field):
         self.use_pred_normals = use_pred_normals
         self.pass_semantic_gradients = pass_semantic_gradients
         self.base_res = base_res
+        self.use_appearance_embedding = use_appearance_embedding
+        self.predicts_validity = predicts_validity
 
         self.direction_encoding = SHEncoding(
             levels=4,
             implementation=implementation,
         )
 
+        # HASH ENCODING
         self.position_encoding = NeRFEncoding(
             in_dim=3, num_frequencies=2, min_freq_exp=0, max_freq_exp=2 - 1, implementation=implementation
         )
-
         self.mlp_base_grid = HashEncoding(
             num_levels=num_levels,
             min_res=base_res,
@@ -134,6 +139,7 @@ class NerfactoField(Field):
             features_per_level=features_per_level,
             implementation=implementation,
         )
+
         self.mlp_base_mlp = MLP(
             in_dim=self.mlp_base_grid.get_out_dim(),
             num_layers=num_layers,
@@ -144,7 +150,7 @@ class NerfactoField(Field):
             implementation=implementation,
         )
         self.mlp_base = torch.nn.Sequential(self.mlp_base_grid, self.mlp_base_mlp)
-
+        
         # transients
         if self.use_transient_embedding:
             self.transient_embedding_dim = transient_embedding_dim
@@ -190,18 +196,52 @@ class NerfactoField(Field):
             )
             self.field_head_pred_normals = PredNormalsFieldHead(in_dim=self.mlp_pred_normals.get_out_dim())
 
-        self.mlp_head = MLP(
-            in_dim=self.direction_encoding.get_out_dim() + self.geo_feat_dim + self.appearance_embedding_dim,
-            num_layers=num_layers_color,
-            layer_width=hidden_dim_color,
-            out_dim=3,
-            activation=nn.ReLU(),
-            out_activation=nn.Sigmoid(),
-            implementation=implementation,
-        )
+        if self.predicts_validity:
+            if self.use_appearance_embedding:
+                self.mlp_validity = MLP(
+                    in_dim=self.geo_feat_dim +self.direction_encoding.get_out_dim()+ self.appearance_embedding_dim,
+                    num_layers=3,
+                    layer_width=64,
+                    out_dim=2,
+                    activation=nn.ReLU(),
+                    out_activation=None,
+                    implementation=implementation,
+                )
+            else:
+                self.mlp_validity = MLP(
+                    in_dim=self.geo_feat_dim +self.direction_encoding.get_out_dim(),
+                    num_layers=3,
+                    layer_width=64,
+                    out_dim=2,
+                    activation=nn.ReLU(),
+                    out_activation=nn.Sigmoid(),
+                    implementation=implementation,
+                )
+
+        if self.use_appearance_embedding:
+            self.mlp_head = MLP(
+                in_dim=self.direction_encoding.get_out_dim() + self.geo_feat_dim + self.appearance_embedding_dim,
+                num_layers=num_layers_color,
+                layer_width=hidden_dim_color,
+                out_dim=3,
+                activation=nn.ReLU(),
+                out_activation=nn.Sigmoid(),
+                implementation=implementation,
+            )
+        else:
+            self.mlp_head = MLP(
+                in_dim=self.direction_encoding.get_out_dim() + self.geo_feat_dim,
+                num_layers=num_layers_color,
+                layer_width=hidden_dim_color,
+                out_dim=3,
+                activation=nn.ReLU(),
+                out_activation=nn.Sigmoid(),
+                implementation=implementation,
+            )
 
     def get_density(self, ray_samples: RaySamples) -> Tuple[Tensor, Tensor]:
         """Computes and returns the densities."""
+        # with torch.no_grad():
         if self.spatial_distortion is not None:
             positions = ray_samples.frustums.get_positions()
             positions = self.spatial_distortion(positions)
@@ -230,6 +270,7 @@ class NerfactoField(Field):
         self, ray_samples: RaySamples, density_embedding: Optional[Tensor] = None
     ) -> Dict[FieldHeadNames, Tensor]:
         assert density_embedding is not None
+        # with torch.no_grad():
         outputs = {}
         if ray_samples.camera_indices is None:
             raise AttributeError("Camera indices are not provided.")
@@ -241,17 +282,18 @@ class NerfactoField(Field):
         outputs_shape = ray_samples.frustums.directions.shape[:-1]
 
         # appearance
-        if self.training:
-            embedded_appearance = self.embedding_appearance(camera_indices)
-        else:
-            if self.use_average_appearance_embedding:
-                embedded_appearance = torch.ones(
-                    (*directions.shape[:-1], self.appearance_embedding_dim), device=directions.device
-                ) * self.embedding_appearance.mean(dim=0)
+        if self.use_appearance_embedding:
+            if self.training:
+                embedded_appearance = self.embedding_appearance(camera_indices)
             else:
-                embedded_appearance = torch.zeros(
-                    (*directions.shape[:-1], self.appearance_embedding_dim), device=directions.device
-                )
+                if self.use_average_appearance_embedding:
+                    embedded_appearance = torch.ones(
+                        (*directions.shape[:-1], self.appearance_embedding_dim), device=directions.device
+                    ) * self.embedding_appearance.mean(dim=0)
+                else:
+                    embedded_appearance = torch.zeros(
+                        (*directions.shape[:-1], self.appearance_embedding_dim), device=directions.device
+                    )
 
         # transients
         if self.use_transient_embedding and self.training:
@@ -287,15 +329,32 @@ class NerfactoField(Field):
             x = self.mlp_pred_normals(pred_normals_inp).view(*outputs_shape, -1).to(directions)
             outputs[FieldHeadNames.PRED_NORMALS] = self.field_head_pred_normals(x)
 
-        h = torch.cat(
-            [
-                d,
-                density_embedding.view(-1, self.geo_feat_dim),
-                embedded_appearance.view(-1, self.appearance_embedding_dim),
-            ],
-            dim=-1,
-        )
+        if self.use_appearance_embedding:
+            h = torch.cat(
+                [
+                    d,
+                    density_embedding.view(-1, self.geo_feat_dim),
+                    embedded_appearance.view(-1, self.appearance_embedding_dim),
+                ],
+                dim=-1,
+            )
+        else:
+            h = torch.cat(
+                [
+                    d,
+                    density_embedding.view(-1, self.geo_feat_dim),
+                ],
+                dim=-1,
+            )
         rgb = self.mlp_head(h).view(*outputs_shape, -1).to(directions)
         outputs.update({FieldHeadNames.RGB: rgb})
 
+        rgb_fast = self.mlp_head_fast(h).view(*outputs_shape, -1).to(directions)
+        outputs.update({FieldHeadNames.RGB_FAST: rgb_fast})
+
+        if self.predicts_validity:
+            h_no_grad = h.clone()
+            validity = self.mlp_validity(h_no_grad).view(*outputs_shape, -1).to(directions)
+            outputs.update({FieldHeadNames.VALIDITY: validity})
+        
         return outputs

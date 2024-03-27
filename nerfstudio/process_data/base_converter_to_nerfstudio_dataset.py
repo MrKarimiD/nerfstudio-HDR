@@ -30,9 +30,9 @@ class BaseConverterToNerfstudioDataset(ABC):
     """Path the data, either a video file or a directory of images."""
     output_dir: Path
     """Path to the output directory."""
-    mask_dir: Path = None
+    mask_dir: Optional[Path] = None
     """Path to the mask directory."""
-    hdr_dir: Path = None
+    hdr_dir: Optional[Path] = None
     """Path to the HDR directory."""
     verbose: bool = False
     """If True, print extra logging."""

@@ -61,7 +61,7 @@ class NerfstudioDataParserConfig(DataParserConfig):
     """The method to use for orientation."""
     center_method: Literal["poses", "focus", "none"] = "poses"
     """The method to use to center the poses."""
-    auto_scale_poses: bool = True
+    auto_scale_poses: bool = False
     """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
     train_split_fraction: float = 0.9
     """The fraction of images to use for training. The remaining images are for eval."""
@@ -88,6 +88,7 @@ class Nerfstudio(DataParser):
 
         image_filenames = []
         mask_filenames = []
+        saturation_mask_filenames = []
         depth_filenames = []
         poses = []
         exposures = []
@@ -155,6 +156,15 @@ class Nerfstudio(DataParser):
                     downsample_folder_prefix="masks_",
                 )
                 mask_filenames.append(mask_fname)
+            
+            if "saturation_mask_path" in frame:
+                saturation_mask_filepath = Path(frame["saturation_mask_path"])
+                saturation_mask_fname = self._get_fname(
+                    saturation_mask_filepath,
+                    data_dir,
+                    downsample_folder_prefix="saturation_masks_",
+                )
+                saturation_mask_filenames.append(saturation_mask_fname)                
 
             if "depth_file_path" in frame:
                 depth_filepath = Path(frame["depth_file_path"])
@@ -170,6 +180,12 @@ class Nerfstudio(DataParser):
         ), """
         Different number of image and mask filenames.
         You should check that mask_path is specified for every frame (or zero frames) in transforms.json.
+        """
+        assert len(saturation_mask_filenames) == 0 or (
+            len(saturation_mask_filenames) == len(image_filenames)
+        ), """
+        Different number of image and saturation mask filenames.
+        You should check that saturation_mask_path is specified for every frame (or zero frames) in transforms.json.
         """
         assert len(depth_filenames) == 0 or (
             len(depth_filenames) == len(image_filenames)
@@ -239,6 +255,7 @@ class Nerfstudio(DataParser):
         # Choose image_filenames and poses based on split, but after auto orient and scaling the poses.
         image_filenames = [image_filenames[i] for i in indices]
         mask_filenames = [mask_filenames[i] for i in indices] if len(mask_filenames) > 0 else []
+        saturation_mask_filenames = [saturation_mask_filenames[i] for i in indices] if len(saturation_mask_filenames) > 0 else []
         depth_filenames = [depth_filenames[i] for i in indices] if len(depth_filenames) > 0 else []
         exposures = [exposures[i] for i in indices] if len(exposures) > 0 else []
 
@@ -277,6 +294,8 @@ class Nerfstudio(DataParser):
         else:
             distortion_params = torch.stack(distort, dim=0)[idx_tensor]
 
+        exposure_tensor = torch.tensor([exposures], dtype=torch.float32).T
+
         cameras = Cameras(
             fx=fx,
             fy=fy,
@@ -287,6 +306,9 @@ class Nerfstudio(DataParser):
             width=width,
             camera_to_worlds=poses[:, :3, :4],
             camera_type=camera_type,
+            metadata={
+                'exposures': exposure_tensor
+            }
         )
 
         assert self.downscale_factor is not None
@@ -306,6 +328,7 @@ class Nerfstudio(DataParser):
             cameras=cameras,
             scene_box=scene_box,
             mask_filenames=mask_filenames if len(mask_filenames) > 0 else None,
+            saturation_mask_filenames=saturation_mask_filenames if len(saturation_mask_filenames) > 0 else None,
             exposures=exposures if len(exposures) > 0 else None,
             dataparser_scale=scale_factor,
             dataparser_transform=transform_matrix,

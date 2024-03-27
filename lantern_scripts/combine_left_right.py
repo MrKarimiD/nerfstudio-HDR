@@ -1,13 +1,13 @@
 import argparse
-import numpy as np
-import os
-from tqdm import tqdm
-from pathlib import Path
-from PIL import Image
 import copy
-import cv2
 import json
+import os
 from pathlib import Path
+
+import cv2
+import numpy as np
+from PIL import Image
+from tqdm import tqdm
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
@@ -83,7 +83,7 @@ def write_to_json(filename: Path, content: dict):
 
 
 def process_one_image(pixels, out_dir, name, has_exposure, exposure_value, zmin, zmax):
-    if args.has_exposure:
+    if has_exposure:
         e1_ldr, e1_hdr, weights_e1 = apply_the_exposure_get_weights(pixels, exposure_value)
         weights_e1_unit = make_weights_binary(e1_ldr, weights_e1, zmin, zmax)
         mask_e1 = weights_e1_unit[:, :, 0] & weights_e1_unit[:, :, 1] & weights_e1_unit[:, :, 2]
@@ -94,6 +94,7 @@ def process_one_image(pixels, out_dir, name, has_exposure, exposure_value, zmin,
         e1_hdr = pixels
     # out_addr = os.path.join(args.out_dir, pano_name + '_e1.exr')
     out_addr = os.path.join(out_dir, name + '.exr')
+    os.makedirs(os.path.dirname(out_addr), exist_ok=True)
     cv2.imwrite(out_addr, e1_hdr) 
 
 

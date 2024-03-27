@@ -20,17 +20,22 @@ os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
 
 import json
 import math
+import shutil
 import sys
 from pathlib import Path
-from typing import List, Tuple
-import shutil
+from typing import List, Tuple, Optional
 
 import cv2
 import numpy as np
 import torch
 from numpy.linalg import inv
-from rich.progress import (BarColumn, Progress, TaskProgressColumn, TextColumn,
-                           TimeRemainingColumn)
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskProgressColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 from scipy.spatial.transform import Rotation
 
 from equilib import Equi2Pers
@@ -115,12 +120,12 @@ def generate_planar_projections_from_equirectangular(
     image_dir: Path,
     planar_image_size: Tuple[int, int],
     samples_per_im: int,
-    mask_dir: Path,
-    hdr_dir: Path,
+    mask_dir: Optional[Path],
+    hdr_dir: Optional[Path] = None,
     crop_factor: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
     is_HDR: bool = False,
     HDR_planar_image_size: Tuple[int, int] = (None, None)
-) -> Path:
+) -> Tuple[Path, Path, Path]:
     """Generate planar projections from an equirectangular image.
 
     Args:
@@ -148,7 +153,14 @@ def generate_planar_projections_from_equirectangular(
     if crop_factor[2] > 0:
         right_bound = 180 - 360 * crop_factor[2]
 
-    if samples_per_im == 8:
+    if samples_per_im == 1:
+        fov = 120
+        bound_arr = [0]
+        bound_arr = _crop_bound_arr_vertical(bound_arr, fov, crop_factor)
+        if bound_arr[0] is not None:
+            for i in np.arange(left_bound, right_bound, 360):
+                yaw_pitch_pairs.append((i, bound_arr[0]))
+    elif samples_per_im == 8:
         fov = 120
         bound_arr = [-45, 0, 45]
         bound_arr = _crop_bound_arr_vertical(bound_arr, fov, crop_factor)
@@ -285,7 +297,7 @@ def generate_planar_projections_from_equirectangular_with_two_exposures(
     e1_factor: float,
     e2_factor: float,
     crop_factor: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
-) -> Path:
+) -> Tuple[Path, Path, Path, Path, Path]:
     """Generate planar projections from an equirectangular image.
 
     Args:
@@ -375,7 +387,7 @@ def generate_planar_projections_from_equirectangular_with_two_exposures(
                 im /=255.0
 
                 mask_e1_addr = os.path.join(mask_e1_dir, i)
-                mask_e1_addr = mask_e1_addr.replace('.png', '_e1.png')
+                # mask_e1_addr = mask_e1_addr.replace('.png', '_e1.png')
                 if not os.path.isfile(mask_e1_addr):
                     raise Exception("The corresponding mask E1 for " + i + " does not exist!!!")
                 mask_e1 = np.array(cv2.imread(mask_e1_addr))
@@ -383,7 +395,7 @@ def generate_planar_projections_from_equirectangular_with_two_exposures(
                 mask_e1 = torch.permute(mask_e1, (2, 0, 1))
 
                 mask_e2_addr = os.path.join(mask_e2_dir, i)
-                mask_e2_addr = mask_e2_addr.replace('.png', '_e2.png')
+                # mask_e2_addr = mask_e2_addr.replace('.png', '_e2.png')
                 if not os.path.isfile(mask_e2_addr):
                     raise Exception("The corresponding mask E2 for " + i + " does not exist!!!")
                 mask_e2 = np.array(cv2.imread(mask_e2_addr))
@@ -473,7 +485,7 @@ def generate_planar_projections_from_equirectangular_GT(
     crop_factor: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
     clip_output: bool = False,
     use_mask = False,
-    use_exposure = False,
+    prefix = None,
 ) -> Path:
     """Given camera pose, generate planar projections from an equirectangular image.
        And output corresponding camera pose.
@@ -580,16 +592,18 @@ def generate_planar_projections_from_equirectangular_GT(
                     im = torch.tensor(im, dtype=torch.float32, device=device)
                     im = torch.permute(im, (2, 0, 1)) / 255.0
                 count = 0
-                current_pano_camera_pose = camera_to_worlds_panos[f"{i[:-4]}"]
+                current_pano_camera_pose = camera_to_worlds_panos[prefix + f"_{i[:-4]}"]
                 current_pano_camera_rotation = current_pano_camera_pose[:3, :3]
                 for u_deg, v_deg in yaw_pitch_pairs:
                     v_rad = torch.pi * v_deg / 180.0
                     u_rad = torch.pi * u_deg / 180.0
-                    pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}, clip_output=clip_output)
+                    # pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}, clip_output=clip_output)
+                    pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad})
                     if mask_dir is not None:
                         pers_mask = equi2pers(mask, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}) * 255.0
                     # transform matrix for blender: object.matrix_world 
                     perspective_camera_rotation = inv(Rotation.from_euler('XYZ', [v_rad, -u_rad, 0], degrees=False).as_matrix())
+                    # perspective_camera_rotation = inv(Rotation.from_euler('XYZ', [v_rad, u_rad, 0], degrees=False).as_matrix())
                     perspective_camera_rotation = current_pano_camera_rotation @  perspective_camera_rotation
                     perspective_camera_pose = current_pano_camera_pose.copy()
                     perspective_camera_pose[:3, :3] = perspective_camera_rotation
@@ -599,22 +613,17 @@ def generate_planar_projections_from_equirectangular_GT(
                     if i.lower().endswith((".exr")):
                         # normalize alpha channel
                         pers_image = (pers_image.permute(1, 2, 0)).type(torch.float32).to("cpu").numpy()
-                        cv2.imwrite(f"{output_dir}/{i[:-4]}_{count}.exr", pers_image)
+                        cv2.imwrite(f"{output_dir}/{prefix}_{i[:-4]}_{count}.exr", pers_image)
                         frame = {
-                            "file_path": f"{output_dir}/{i[:-4]}_{count}.exr",
+                            "file_path": f"{output_dir}/{prefix}_{i[:-4]}_{count}.exr",
                             "transform_matrix": perspective_camera_pose.tolist(),
                         }
-                        if use_exposure:
-                            exposure = 1.0
-                            if i[0:3] == "rhs":
-                                exposure = 0.009
-                            frame["exposure"] = exposure
                     else:
                         pers_image *= 255.0
                         pers_image = (pers_image.permute(1, 2, 0)).type(torch.uint8).to("cpu").numpy()
-                        cv2.imwrite(f"{output_dir}/{i[:-4]}_{count}.png", pers_image)
+                        cv2.imwrite(f"{output_dir}/{prefix}_{i[:-4]}_{count}.png", pers_image)
                         frame = {
-                            "file_path": f"{output_dir}/{i[:-4]}_{count}.png",
+                            "file_path": f"{output_dir}/{prefix}_{i[:-4]}_{count}.png",
                             "transform_matrix": perspective_camera_pose.tolist(),
                         }
                     
@@ -623,14 +632,16 @@ def generate_planar_projections_from_equirectangular_GT(
                         mask = np.array(cv2.imread(os.path.join(frame_dir, "mask", mask_file_name))).astype("uint8")
                         mask = ~((mask == 0).all(axis=-1))
                         mask = mask.astype("uint8") * 255
+                        mask[mask < 250] = 0
+                        mask[mask >= 250] = 255
                         # black corresponde to pixel to be ignored
                         mask = torch.tensor(mask[:,:,None], dtype=torch.uint8, device=device)
                         mask = torch.permute(mask, (2, 0, 1))
                         pers_mask = equi2pers(mask, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad})
                         pers_mask = pers_mask.permute(1, 2, 0) 
                         pers_mask = pers_mask[:, :, 0].to("cpu").numpy()
-                        cv2.imwrite(f"{output_mask_dir}/{i[:-4]}_{count}.png", pers_mask)
-                        frame["mask_path"] = f"{output_mask_dir}/{i[:-4]}_{count}.png"
+                        cv2.imwrite(f"{output_mask_dir}/{prefix}_{i[:-4]}_{count}.png", pers_mask)
+                        frame["mask_path"] = f"{output_mask_dir}/{prefix}_{i[:-4]}_{count}.png"
                         
                     frames.append(frame)        
                     count += 1

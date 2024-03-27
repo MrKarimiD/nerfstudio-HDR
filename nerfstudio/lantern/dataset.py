@@ -71,7 +71,10 @@ class HDRInputDataset(InputDataset):
             hdr_image = cv2.resize(hdr_image, newsize, interpolation = cv2.INTER_LINEAR)
         hdr_image = cv2.cvtColor(hdr_image, cv2.COLOR_BGR2RGB)
         hdr_image = hdr_image.astype("float32")  # shape is (h, w) or (h, w, 3 or 4)
+        if str(image_filename).endswith('.png'):
+            hdr_image = hdr_image / 255.0
         if len(hdr_image.shape) == 2:
+            raise "SHAPE ISSUE"
             hdr_image = hdr_image[:, :, None].repeat(3, axis=2)
         assert len(hdr_image.shape) == 3
         assert hdr_image.dtype == np.float32
@@ -86,11 +89,12 @@ class HDRInputDataset(InputDataset):
         """
         # Compress HDR using: pixel = log(pixel + 1.)
             
-        image = torch.from_numpy(self.get_numpy_image(image_idx).astype("float32"))
+        image = torch.from_numpy(self.get_numpy_image(image_idx))
         
         # Compress HDR using u-law: pixel = log(u * pixel + 1.) / log(u + 1.)
-        u = 5000.
-        image = torch.log(1. + u * image) / torch.log(torch.tensor(1.+u))
+        # u = 10.
+        # image = torch.log(1. + u * image) / torch.log(torch.tensor(1.+u))
+        # image = torch.pow(image, 1/ 2.2)
         
         if self._dataparser_outputs.alpha_color is not None and image.shape[-1] == 4:
             image = image[:, :, :3] * image[:, :, -1:] + self._dataparser_outputs.alpha_color * (1.0 - image[:, :, -1:])
@@ -111,11 +115,22 @@ class HDRInputDataset(InputDataset):
                 data["mask"].shape[:2] == data["image"].shape[:2]
             ), f"Mask and image have different shapes. Got {data['mask'].shape[:2]} and {data['image'].shape[:2]}"
         
+        if self._dataparser_outputs.saturation_mask_filenames is not None:
+            saturation_mask_filepath = self._dataparser_outputs.saturation_mask_filenames[image_idx]
+            data["saturation_mask"] = get_image_mask_tensor_from_path(filepath=saturation_mask_filepath, scale_factor=self.scale_factor)
+            assert (
+                data["saturation_mask"].shape[:2] == data["image"].shape[:2]
+            ), f"Saturation mask and image have different shapes. Got {data['saturation_mask'].shape[:2]} and {data['image'].shape[:2]}"
+
+        # Let's and the masks
+        # data["mask"] = torch.logical_and(data["mask"], data["saturation_mask"])
+
         if self._dataparser_outputs.exposures is not None:
             exposure_value = self._dataparser_outputs.exposures[image_idx]
             data["exposure"] = exposure_value
         metadata = self.get_metadata(data)
         data.update(metadata)
+
         return data
 
     def get_metadata(self, data: Dict) -> Dict:
