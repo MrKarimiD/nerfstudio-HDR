@@ -61,7 +61,7 @@ class NerfstudioDataParserConfig(DataParserConfig):
     """The method to use for orientation."""
     center_method: Literal["poses", "focus", "none"] = "poses"
     """The method to use to center the poses."""
-    auto_scale_poses: bool = True
+    auto_scale_poses: bool = False
     """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
     train_split_fraction: float = 0.9
     """The fraction of images to use for training. The remaining images are for eval."""
@@ -294,6 +294,8 @@ class Nerfstudio(DataParser):
         else:
             distortion_params = torch.stack(distort, dim=0)[idx_tensor]
 
+        exposure_tensor = torch.tensor([exposures], dtype=torch.float32).T
+
         cameras = Cameras(
             fx=fx,
             fy=fy,
@@ -304,6 +306,9 @@ class Nerfstudio(DataParser):
             width=width,
             camera_to_worlds=poses[:, :3, :4],
             camera_type=camera_type,
+            metadata={
+                'exposures': exposure_tensor
+            }
         )
 
         assert self.downscale_factor is not None

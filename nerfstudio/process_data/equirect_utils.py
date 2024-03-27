@@ -485,7 +485,7 @@ def generate_planar_projections_from_equirectangular_GT(
     crop_factor: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
     clip_output: bool = False,
     use_mask = False,
-    use_exposure = False,
+    prefix = None,
 ) -> Path:
     """Given camera pose, generate planar projections from an equirectangular image.
        And output corresponding camera pose.
@@ -592,16 +592,18 @@ def generate_planar_projections_from_equirectangular_GT(
                     im = torch.tensor(im, dtype=torch.float32, device=device)
                     im = torch.permute(im, (2, 0, 1)) / 255.0
                 count = 0
-                current_pano_camera_pose = camera_to_worlds_panos[f"{i[:-4]}"]
+                current_pano_camera_pose = camera_to_worlds_panos[prefix + f"_{i[:-4]}"]
                 current_pano_camera_rotation = current_pano_camera_pose[:3, :3]
                 for u_deg, v_deg in yaw_pitch_pairs:
                     v_rad = torch.pi * v_deg / 180.0
                     u_rad = torch.pi * u_deg / 180.0
-                    pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}, clip_output=clip_output)
+                    # pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}, clip_output=clip_output)
+                    pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad})
                     if mask_dir is not None:
                         pers_mask = equi2pers(mask, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}) * 255.0
                     # transform matrix for blender: object.matrix_world 
                     perspective_camera_rotation = inv(Rotation.from_euler('XYZ', [v_rad, -u_rad, 0], degrees=False).as_matrix())
+                    # perspective_camera_rotation = inv(Rotation.from_euler('XYZ', [v_rad, u_rad, 0], degrees=False).as_matrix())
                     perspective_camera_rotation = current_pano_camera_rotation @  perspective_camera_rotation
                     perspective_camera_pose = current_pano_camera_pose.copy()
                     perspective_camera_pose[:3, :3] = perspective_camera_rotation
@@ -611,22 +613,17 @@ def generate_planar_projections_from_equirectangular_GT(
                     if i.lower().endswith((".exr")):
                         # normalize alpha channel
                         pers_image = (pers_image.permute(1, 2, 0)).type(torch.float32).to("cpu").numpy()
-                        cv2.imwrite(f"{output_dir}/{i[:-4]}_{count}.exr", pers_image)
+                        cv2.imwrite(f"{output_dir}/{prefix}_{i[:-4]}_{count}.exr", pers_image)
                         frame = {
-                            "file_path": f"{output_dir}/{i[:-4]}_{count}.exr",
+                            "file_path": f"{output_dir}/{prefix}_{i[:-4]}_{count}.exr",
                             "transform_matrix": perspective_camera_pose.tolist(),
                         }
-                        if use_exposure:
-                            exposure = 1.0
-                            if i[0:3] == "rhs":
-                                exposure = 0.009
-                            frame["exposure"] = exposure
                     else:
                         pers_image *= 255.0
                         pers_image = (pers_image.permute(1, 2, 0)).type(torch.uint8).to("cpu").numpy()
-                        cv2.imwrite(f"{output_dir}/{i[:-4]}_{count}.png", pers_image)
+                        cv2.imwrite(f"{output_dir}/{prefix}_{i[:-4]}_{count}.png", pers_image)
                         frame = {
-                            "file_path": f"{output_dir}/{i[:-4]}_{count}.png",
+                            "file_path": f"{output_dir}/{prefix}_{i[:-4]}_{count}.png",
                             "transform_matrix": perspective_camera_pose.tolist(),
                         }
                     
@@ -635,14 +632,16 @@ def generate_planar_projections_from_equirectangular_GT(
                         mask = np.array(cv2.imread(os.path.join(frame_dir, "mask", mask_file_name))).astype("uint8")
                         mask = ~((mask == 0).all(axis=-1))
                         mask = mask.astype("uint8") * 255
+                        mask[mask < 250] = 0
+                        mask[mask >= 250] = 255
                         # black corresponde to pixel to be ignored
                         mask = torch.tensor(mask[:,:,None], dtype=torch.uint8, device=device)
                         mask = torch.permute(mask, (2, 0, 1))
                         pers_mask = equi2pers(mask, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad})
                         pers_mask = pers_mask.permute(1, 2, 0) 
                         pers_mask = pers_mask[:, :, 0].to("cpu").numpy()
-                        cv2.imwrite(f"{output_mask_dir}/{i[:-4]}_{count}.png", pers_mask)
-                        frame["mask_path"] = f"{output_mask_dir}/{i[:-4]}_{count}.png"
+                        cv2.imwrite(f"{output_mask_dir}/{prefix}_{i[:-4]}_{count}.png", pers_mask)
+                        frame["mask_path"] = f"{output_mask_dir}/{prefix}_{i[:-4]}_{count}.png"
                         
                     frames.append(frame)        
                     count += 1

@@ -42,7 +42,7 @@ class LanternNerfactoField(NerfactoField):
         hidden_dim_transient: int = 64,
         appearance_embedding_dim: int = 32,
         transient_embedding_dim: int = 16,
-        use_transient_embedding: bool = False,
+        use_transient_embedding: bool = True,
         use_semantics: bool = False,
         num_semantic_classes: int = 100,
         pass_semantic_gradients: bool = False,
@@ -50,6 +50,8 @@ class LanternNerfactoField(NerfactoField):
         use_average_appearance_embedding: bool = False,
         spatial_distortion: Optional[SpatialDistortion] = None,
         implementation: Literal["tcnn", "torch"] = "tcnn",
+        use_appearance_embedding: bool = True,
+        predicts_validity: bool = True,
     ) -> None:
         super().__init__(aabb, num_images, num_layers, hidden_dim,
                          geo_feat_dim, num_levels, base_res, 
@@ -58,14 +60,51 @@ class LanternNerfactoField(NerfactoField):
                          hidden_dim_transient, appearance_embedding_dim, transient_embedding_dim,
                          use_transient_embedding, use_semantics, num_semantic_classes,
                          pass_semantic_gradients, use_pred_normals, use_average_appearance_embedding,
-                         spatial_distortion, implementation)
+                         spatial_distortion, implementation, use_appearance_embedding, predicts_validity)
+        
+        if self.use_appearance_embedding:
+            self.mlp_head = MLP(
+                in_dim=self.direction_encoding.get_out_dim() + self.geo_feat_dim + self.appearance_embedding_dim,
+                num_layers=num_layers_color,
+                layer_width=hidden_dim_color,
+                out_dim= 3,
+                activation=nn.ReLU(),
+                # out_activation=nn.ReLU(),
+                out_activation=nn.Sigmoid(),
+                implementation=implementation,
+            )
+
+            self.mlp_head_fast = MLP(
+                in_dim=self.direction_encoding.get_out_dim() + self.geo_feat_dim + self.appearance_embedding_dim,
+                num_layers=num_layers_color,
+                layer_width=hidden_dim_color,
+                out_dim= 3,
+                activation=nn.ReLU(),
+                # out_activation=nn.ReLU(),
+                out_activation=nn.Sigmoid(),
+                implementation=implementation,
+            )
+
         # Define the last part MLP for RGB outputs and Masks
-        self.mlp_head = MLP(
-            in_dim=self.direction_encoding.get_out_dim() + self.geo_feat_dim + self.appearance_embedding_dim,
-            num_layers=num_layers_color,
-            layer_width=hidden_dim_color,
-            out_dim= 3 + 2,
-            activation=nn.ReLU(),
-            out_activation=nn.ReLU(),
-            implementation=implementation,
-        )
+        else:
+            self.mlp_head = MLP(
+                in_dim=self.direction_encoding.get_out_dim() + self.geo_feat_dim,
+                num_layers=num_layers_color,
+                layer_width=hidden_dim_color,
+                out_dim= 6,
+                activation=nn.ReLU(),
+                # out_activation=nn.ReLU(),
+                out_activation=nn.Sigmoid(),
+                implementation=implementation,
+            )
+
+            self.mlp_head_fast = MLP(
+                in_dim=self.direction_encoding.get_out_dim() + self.geo_feat_dim,
+                num_layers=num_layers_color,
+                layer_width=hidden_dim_color,
+                out_dim= 3,
+                activation=nn.ReLU(),
+                # out_activation=nn.ReLU(),
+                out_activation=nn.Sigmoid(),
+                implementation=implementation,
+            )

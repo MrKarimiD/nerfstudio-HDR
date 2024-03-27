@@ -98,7 +98,7 @@ def _render_trajectory_video(
     CONSOLE.print("[bold green]Creating trajectory " + output_format)
     cameras.rescale_output_resolution(rendered_resolution_scaling_factor)
     cameras = cameras.to(pipeline.device)
-    fps = len(cameras) / seconds
+    fps = len(cameras) / seconds if seconds != 0 else 1
     print(len(cameras))
     progress = Progress(
         TextColumn(":movie_camera: Rendering :movie_camera:"),
@@ -171,11 +171,11 @@ def _render_trajectory_video(
                         )
                     elif is_validity:
                         mask_f = torch.clip(outputs["validity_f"], 0, 1)
-                        mask_f = torch.ones(mask_f.shape).to(mask_f.get_device()) - mask_f
+                        # mask_f = torch.ones(mask_f.shape).to(mask_f.get_device()) - mask_f
 
-                        final_mask = torch.clip(outputs["validity_w"], 0, 1) + mask_f
-                        final_mask[final_mask > 0.5] = 1
-                        final_mask[final_mask <= 0.5] = 0
+                        final_mask = torch.clip(outputs["validity_w"], 0, 1) # + mask_f
+                        # final_mask[final_mask > 0.5] = 1
+                        # final_mask[final_mask <= 0.5] = 0
 
                         output_image = (
                             colormaps.apply_colormap(
@@ -186,9 +186,10 @@ def _render_trajectory_video(
                             .numpy()
                         )
                     elif image_format == "exr":
-                        u = 5000.
-                        output_image = torch.exp(output_image * torch.log(torch.tensor(u+1.))) - 1.
-                        output_image /= u
+                        # u = 10.
+                        # output_image = torch.exp(output_image * torch.log(torch.tensor(u+1.))) - 1.
+                        # output_image /= u
+                        # output_image = output_image
                         output_image = (
                             output_image.cpu().numpy()
                         )
