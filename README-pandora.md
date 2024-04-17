@@ -68,7 +68,7 @@ pip install skylibs equilib
     Make sure the masks in "./stick_masks" are valid
     ```
     python lantern_scripts/mask_humans2.py --help
-    python lantern_scripts/mask_humans2.py --input_dir data/lab_downstairs/trimmed_videos
+    python lantern_scripts/mask_humans2.py --input_dir data/lab_downstairs/trimmed_videos --output_dir
     ```
 
 

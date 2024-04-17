@@ -576,9 +576,9 @@ def generate_planar_projections_from_equirectangular_GT(
     frames = []
     idx = 0
     files_list = [file for file in os.listdir(frame_dir) 
-         if os.path.isfile(os.path.join(frame_dir, file))]
+         if os.path.isfile(os.path.join(frame_dir, file)) and (prefix + f"_{file[:-4]}") in camera_to_worlds_panos.keys()]
     files_list = sorted(files_list)
-
+    
     num_ims = len(files_list)
     with progress:
         for i in progress.track(files_list, description="", total=num_ims):

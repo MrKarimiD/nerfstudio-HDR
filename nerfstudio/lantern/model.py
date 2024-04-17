@@ -352,16 +352,26 @@ class LanternModel(NerfactoModel):
         #     loss_dict["validity_loss_fast_exposure"] = loss_mask_fast_expo
 
         gt_rgb_w = gt_rgb.clone()
+        # u = 5000.
+        # gt_rgb_w = torch.log(1. + u * gt_rgb_w) / torch.log(torch.tensor(1.+u))
+
         # gt_rgb_w[(exposures_resized != 1.0).repeat(1, 3)] = 1.0# torch.clamp(gt_rgb_w[(exposures_resized != 1.0).repeat(1, 3)] / 0.004, 0, 1)
         # import pdb; pdb.set_trace()
         gt_rgb_f = gt_rgb.clone()
+        u = 5000.
+        gt_rgb_f = torch.log(1. + u * gt_rgb_f) / torch.log(torch.tensor(1.+u))
+
         # gt_rgb_f[(exposures_resized == 1.0).repeat(1, 3)] = gt_rgb_f[(exposures_resized == 1.0).repeat(1, 3)] * 0.004
         # loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb_w, pred_rgb)
         # loss_dict["rgb_loss_fast"] = self.rgb_loss(gt_rgb_f, pred_rgb_f)
         # loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb_f, pred_rgb_f)
         
-        # loss_dict["rgb_loss"] = (mask_w_w * ((gt_rgb_w - pred_rgb) ** 2)).mean()
-        # loss_dict["rgb_loss_fast"] = (mask_f_w * ((10.0 * gt_rgb_f - pred_rgb_f) ** 2)).mean()
+        loss_dict["rgb_loss"] = (mask_w_w * ((gt_rgb_w - pred_rgb) ** 2)).mean()
+        loss_dict["rgb_loss_fast"] = (mask_f_w * ((gt_rgb_f - pred_rgb_f) ** 2)).mean()
+
+        # RGB_fast = (pred_rgb * pred_rgb_f) * 0.004
+        # loss_dict["rgb_loss_fast"] = 0.0005 * (mask_f_w * ((gt_rgb_f - RGB_fast) ** 2)).mean()
+        # print("rgb_loss_fast: ", loss_dict["rgb_loss_fast"])
         
         # loss_dict["rgb_loss_fast"] = 300.0 * (mask_f_w * ((gt_rgb_f - pred_rgb_f) ** 2)).mean()
         # import pdb; pdb.set_trace()
@@ -369,7 +379,7 @@ class LanternModel(NerfactoModel):
         # if weights_for_RGB_loss is not None:
         #     loss_dict["rgb_loss"] = (weights_for_RGB_loss * ((gt_rgb - pred_rgb) ** 2)).mean()
         # else:
-        loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
+        # loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
 
         # print("rgb_loss: ", loss_dict["rgb_loss"], ", rgb_fast_expo_loss: ", loss_dict["rgb_fast_expo_loss"])
         if self.training:
@@ -378,6 +388,7 @@ class LanternModel(NerfactoModel):
             )
             assert metrics_dict is not None and "distortion" in metrics_dict
             loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
+            # loss_dict["fg"] = (torch.pow(1 - torch.sum( outputs["weights_list"][-1], dim=0), 2)).mean()
             if self.config.predict_normals:
                 # orientation loss for computed normals
                 loss_dict["orientation_loss"] = self.config.orientation_loss_mult * torch.mean(

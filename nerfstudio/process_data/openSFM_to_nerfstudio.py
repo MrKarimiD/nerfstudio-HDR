@@ -49,6 +49,13 @@ def apply_correction(coefs, img, CORRECTION_CURVE_TYPE) -> np.ndarray:
     return img
 
 
+def distance(point_array, ref):
+    pow_2 = np.power(point_array - ref, 2)
+    sum_pow_2 = np.sum(pow_2, axis=-1)
+    dist = np.sqrt(sum_pow_2)
+    return dist
+
+
 def opensfm_to_opengl(shot_data):
     rvec = np.array(tuple(map(float, shot_data['rotation'])))
     tvec = np.array(tuple(map(float, shot_data['translation'])))
@@ -139,20 +146,21 @@ class OpenSFMToNeRFStudioDataset(BaseConverterToNerfstudioDataset):
         if not self.skip_image_processing: 
             openSFM_reconstruction = io.load_from_json(self.metadata)
             frames_names = openSFM_reconstruction[0]['shots'].keys()
-            
-            # Computing the basis trandoem matrix
+            frames_names = sorted(frames_names)
+
+            # Computing the basis transform matrix
             rot_list = []
             trn_list = []
+
             for fname in frames_names:
                 if fname.startswith("left_sfm"):
                     shot_data = openSFM_reconstruction[0]['shots'][fname]
                     left_C2W, left_rvec, left_tvec = opensfm_to_opengl(shot_data)
-
+                    
                     right_fname = fname.replace("left_sfm", "right_sfm")
                     if right_fname in frames_names:
                         shot_data = openSFM_reconstruction[0]['shots'][right_fname]
                         right_C2W, right_rvec, right_tvec = opensfm_to_opengl(shot_data)
-
                         basis_change = np.linalg.inv(left_C2W) @ right_C2W
 
                         from scipy.spatial.transform import Rotation as R
@@ -163,37 +171,64 @@ class OpenSFMToNeRFStudioDataset(BaseConverterToNerfstudioDataset):
                     else:
                         print("The right one is not registered for " + fname)
             
+            # Filtering the data points
+            trn_np = np.asarray(trn_list)
+            trn_median = np.median(trn_np, 0)
+            dist = distance(trn_np, trn_median)
+            percentile_95 = np.percentile(dist, 95)
+            valid_idx = dist < percentile_95
+            
+            trn_np = trn_np[valid_idx]
+            rot_np = np.asarray(rot_list)[valid_idx]
+
             basis_change = np.zeros((4, 4))
+            # basis_change = solution_w_SVD
             from sksurgerycore.algorithms.averagequaternions import average_quaternions
-            avg_quat = average_quaternions(np.asarray(rot_list))
+            avg_quat = average_quaternions(rot_np)
             r = R.from_quat(avg_quat)
             basis_change[0:3, 0:3] = r.as_matrix()
-            basis_change[0:3, 3] = np.mean(np.asarray(trn_list), 0)
+            basis_change[0:3, 3] = np.mean(trn_np, 0)
             basis_change[3, 3] = 1.0
             print("basis_change: ", basis_change)
-
+            
             # Convert OpenSFM coordinates to the NeRFStudio
-            camera_dict = {}
-            camera_dict["frames"] = []
+            translations = []
             for fname in frames_names:
                 # if fname.startswith("left_sfm"):
                 if fname.startswith("left_e1"):
                     shot_data = openSFM_reconstruction[0]['shots'][fname]
-                    left_C2W, _, _ = opensfm_to_opengl(shot_data)
-                    camera_dict["frames"].append(
-                    {
-                        "file_path": fname.split('.')[0],
-                        "transform_matrix": left_C2W.tolist()
-                    })
+                    _, _, left_tvec = opensfm_to_opengl(shot_data)
+                    translations.append(left_tvec)
+            
+            translations_np = np.asarray(translations)
+            left_trn_median = np.median(translations_np, 0)
+            dist = distance(translations_np, left_trn_median)
+            percentile_95 = np.percentile(dist, 99)
+            valid_idx = dist < percentile_95
 
+            # Convert OpenSFM coordinates to the NeRFStudio
+            camera_dict = {}
+            camera_dict["frames"] = []
+            for idx, fname in enumerate(frames_names):
+                # if fname.startswith("left_sfm"):
+                if fname.startswith("left_e1"):
                     right_fname = fname.replace("left_e1", "right_e2")
                     # right_fname = fname.replace("left_sfm", "right_sfm")
-                    right_C2W = left_C2W @ basis_change
-                    camera_dict["frames"].append(
-                    {
-                        "file_path": right_fname.split('.')[0],
-                        "transform_matrix": right_C2W.tolist()
-                    })
+                    shot_data = openSFM_reconstruction[0]['shots'][fname]
+                    left_C2W, left_rvec, left_tvec = opensfm_to_opengl(shot_data)
+                    if valid_idx[idx]:
+                        camera_dict["frames"].append(
+                        {
+                            "file_path": fname.split('.')[0],
+                            "transform_matrix": left_C2W.tolist()
+                        })
+                        
+                        right_C2W = left_C2W @ basis_change
+                        camera_dict["frames"].append(
+                        {
+                            "file_path": right_fname.split('.')[0],
+                            "transform_matrix": right_C2W.tolist()
+                        })
                         
             with open(self.output_dir / 'panoramic_transforms.json', 'w') as f:
                 json.dump(camera_dict, f, indent=4)

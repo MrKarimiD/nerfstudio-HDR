@@ -158,6 +158,7 @@ def _render_trajectory_video(
                     output_image = outputs[rendered_output_name]
                     is_depth = rendered_output_name.find("depth") != -1
                     is_validity = rendered_output_name.find("validity_w") != -1 or  rendered_output_name.find("validity_f") != -1
+                    is_fast_exposure = rendered_output_name.find("rgb_fast") != -1
                     if is_depth:
                         output_image = (
                             colormaps.apply_depth_colormap(
@@ -170,6 +171,12 @@ def _render_trajectory_video(
                             .cpu()
                             .numpy()
                         )
+                    elif is_fast_exposure:
+                        u = 5000.
+                        img_uncompress = torch.exp(output_image * torch.log(torch.tensor(u+1.))) - 1.
+                        img_uncompress /= u
+                        output_image = img_uncompress
+                        output_image = (output_image.cpu().numpy())
                     elif is_validity:
                         mask_f = torch.clip(outputs["validity_f"], 0, 1)
                         # mask_f = torch.ones(mask_f.shape).to(mask_f.get_device()) - mask_f
@@ -187,10 +194,6 @@ def _render_trajectory_video(
                             .numpy()
                         )
                     elif image_format == "exr":
-                        # u = 10.
-                        # output_image = torch.exp(output_image * torch.log(torch.tensor(u+1.))) - 1.
-                        # output_image /= u
-                        # output_image = output_image
                         output_image = (
                             output_image.cpu().numpy()
                         )
@@ -547,7 +550,7 @@ class RenderInterpolated(BaseRender):
             eval_num_rays_per_chunk=self.eval_num_rays_per_chunk,
             test_mode="test",
         )
-
+        
         install_checks.check_ffmpeg_installed()
 
         output_names = []
@@ -558,18 +561,37 @@ class RenderInterpolated(BaseRender):
                 output_names.append(file_name.stem)
         else:
             assert pipeline.datamanager.train_dataset is not None
-            cameras = pipeline.datamanager.train_dataset.cameras
-            for file_name in pipeline.datamanager.train_dataset.image_filenames:
-                output_names.append(file_name.stem)
-
+            poses = [] # pipeline.datamanager.train_dataset.cameras
+            ks_list = [] 
+            Ks = pipeline.datamanager.train_dataset.cameras.get_intrinsics_matrices()
+            for idx, file_name in enumerate(pipeline.datamanager.train_dataset.image_filenames):
+                # if file_name.stem.startswith('right_e2'):
+                if file_name.stem.startswith('right_sfm'):
+                    output_names.append(file_name.stem)
+                    poses.append(pipeline.datamanager.train_dataset.cameras[idx].camera_to_worlds)
+                    ks_list.append(Ks[idx, :, :])
         
-        
-        seconds = self.interpolation_steps * len(cameras) / self.frame_rate
-        camera_path = get_interpolated_camera_path(
-            cameras=cameras,
-            steps=self.interpolation_steps,
-            order_poses=self.order_poses,
+        poses = np.stack(poses, axis=0)
+        poses = torch.tensor(poses, dtype=torch.float32)
+        ks = np.stack(ks_list, axis=0)
+        ks = torch.tensor(ks, dtype=torch.float32)
+        # import pdb; pdb.set_trace()
+        cameras = Cameras(
+            fx = ks[:, 0, 0],
+            fy = ks[:, 1, 1],
+            cx = ks[0, 0, 2],
+            cy = ks[0, 1, 2],
+            camera_type = pipeline.datamanager.train_dataset.cameras.camera_type[0],
+            camera_to_worlds = poses,
         )
+        # import pdb; pdb.set_trace()
+
+        seconds = self.interpolation_steps * len(cameras) / self.frame_rate
+        camera_path = cameras #get_interpolated_camera_path(
+        #     cameras=cameras,
+        #     steps=self.interpolation_steps,
+        #     order_poses=self.order_poses,
+        # )
 
         _render_trajectory_video(
             pipeline,

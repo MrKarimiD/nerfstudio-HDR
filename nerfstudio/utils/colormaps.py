@@ -24,7 +24,7 @@ from torch import Tensor
 
 from nerfstudio.utils import colors
 
-Colormaps = Literal["default", "turbo", "viridis", "magma", "inferno", "cividis", "gray", "pca"]
+Colormaps = Literal["default", "turbo", "viridis", "magma", "inferno", "cividis", "gray", "pca",  "inverse-mu"]
 
 
 @dataclass(frozen=True)
@@ -66,13 +66,15 @@ def apply_colormap(
     # default for rgb images
     if image.shape[-1] == 3:
         # if(colormap_options.exposure_scale != 0 or image.max() > 1):
-        if True:
-            img_gamma_22 = image
-            img_gamma_22 *= 2.**(colormap_options.exposure_scale)
-            img_gamma_22 = torch.pow(img_gamma_22, 1./2.2)
-            return torch.clamp(img_gamma_22, 0., 1.)
-        else:
-            return image
+        if colormap_options.colormap == 'inverse-mu':
+            u = 5000.
+            img_uncompress = torch.exp(image * torch.log(torch.tensor(u+1.))) - 1.
+            img_uncompress /= u
+            image = img_uncompress
+        img_gamma_22 = image
+        img_gamma_22 *= 2.**(colormap_options.exposure_scale)
+        img_gamma_22 = torch.pow(img_gamma_22, 1./2.2)
+        return torch.clamp(img_gamma_22, 0., 1.)
 
     # rendering depth outputs
     if image.shape[-1] == 1 and torch.is_floating_point(image):

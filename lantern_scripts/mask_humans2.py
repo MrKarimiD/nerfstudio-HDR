@@ -17,13 +17,13 @@ from tqdm import tqdm
 
 FRAME_SUBFOLDERS_CONFIG = [
     {
-        'name': 'left_colmap_baseline',
+        'name': 'left_sfm',
         'flip_k': -1,
         'mask_person': True,
         'custom_mask': './stick_masks/left_mask.png'
     },
     {
-        'name': 'right_colmap_baseline',
+        'name': 'right_sfm',
         'flip_k': 1,
         'mask_person': True,
         'custom_mask': './stick_masks/right_mask.png'
@@ -46,8 +46,8 @@ PERSON_DILATE_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (40, 40))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_dir', type=str, default='./data/lab_ground_floor/trimmed_videos', help='Directory containing all the 4 directories containing frames')
-    parser.add_argument('--output_dir', type=str, default='./data/lab_ground_floor/trimmed_videos_masks', help='Directory to save masked frames')
+    parser.add_argument('--input_dir', type=str, help='Directory containing all the 4 directories containing frames')
+    parser.add_argument('--output_dir', type=str, help='Directory to save masked frames')
     
     args = parser.parse_args()
     out = args.output_dir

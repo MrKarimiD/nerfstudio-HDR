@@ -61,8 +61,10 @@ class PixelSampler:
     config: PixelSamplerConfig
     is_well_exposed_computed: bool = False
     is_fast_exposed_computed: bool = False
+    is_light_sources_computed: bool = False
     well_exposed_indices: torch.Tensor
     fast_exposed_indices: torch.Tensor
+    light_sources_indices: torch.Tensor
     fast_image_batch = {}
     well_image_batch = {}
     def __init__(self, config: PixelSamplerConfig, **kwargs) -> None:
@@ -85,32 +87,34 @@ class PixelSampler:
 
     def sample_considering_mask(self, mask, device, batch_size):
         num_masks = mask.shape[0]
-        size_of_disk = 50
-        num_disks = ceil(num_masks / size_of_disk)
-        # slice mask to 100 disk
-        random_idx_disk = int(torch.randint(0, num_disks, (1,)))
         indices = torch.tensor([]).cuda().to(device)
         nonzero_indices_whole = torch.tensor([]).to(device)
-        
-        for current_disk, start in enumerate(range(0, num_masks, size_of_disk)):
-            is_last_disk = ((start//size_of_disk) == num_disks-1)
-            end = start + size_of_disk if not is_last_disk else num_masks
-            current_masks = mask[start:end,...].to(device)
-            nonzero_indices = torch.nonzero(current_masks, as_tuple=False)
-            # Add offset to indices:local indices --> global
-            nonzero_indices[:,0] += start
+
+        if num_masks > 0:
+            size_of_disk = 50
+            num_disks = ceil(num_masks / size_of_disk)
+            # slice mask to 100 disk
+            random_idx_disk = int(torch.randint(0, num_disks, (1,)))
             
-            num_samples = batch_size // (num_disks-1) if current_disk != random_idx_disk \
-                                else batch_size % (num_disks-1)
-            chosen_indices = torch.randint(0, nonzero_indices.shape[0], (num_samples,), device=device)
-            
-            indice_this_disk = nonzero_indices[chosen_indices]
-            indices = torch.cat((indices, indice_this_disk), dim=0).long()
-            nonzero_indices_whole = torch.cat((nonzero_indices_whole, nonzero_indices.cpu()), dim=0)
-            
-            del current_masks
-            del nonzero_indices
-            del indice_this_disk
+            for current_disk, start in enumerate(range(0, num_masks, size_of_disk)):
+                is_last_disk = ((start//size_of_disk) == num_disks-1)
+                end = start + size_of_disk if not is_last_disk else num_masks
+                current_masks = mask[start:end,...].to(device)
+                nonzero_indices = torch.nonzero(current_masks, as_tuple=False)
+                # Add offset to indices:local indices --> global
+                nonzero_indices[:,0] += start
+                
+                num_samples = batch_size // (num_disks-1) if current_disk != random_idx_disk \
+                                    else batch_size % (num_disks-1)
+                chosen_indices = torch.randint(0, nonzero_indices.shape[0], (num_samples,), device=device)
+                
+                indice_this_disk = nonzero_indices[chosen_indices]
+                indices = torch.cat((indices, indice_this_disk), dim=0).long()
+                nonzero_indices_whole = torch.cat((nonzero_indices_whole, nonzero_indices.cpu()), dim=0)
+                
+                del current_masks
+                del nonzero_indices
+                del indice_this_disk
         
         return indices, nonzero_indices_whole
         
@@ -126,6 +130,7 @@ class PixelSampler:
         device: Union[torch.device, str] = "cpu",
         is_fast_expo: bool = False,
         only_light_sources: bool = False,
+        validity: Optional[Tensor] = None,
     ) -> Int[Tensor, "batch_size 3"]:
         """
         Naive pixel sampler, uniformly samples across all possible pixels of all possible images.
@@ -145,14 +150,27 @@ class PixelSampler:
                 mask = mask.squeeze(-1)
                 
             if is_fast_expo:
-                if self.is_fast_exposed_computed:
-                    chosen_indices = torch.randint(0, self.fast_exposed_indices.shape[0], (batch_size,))
-                    return self.fast_exposed_indices[chosen_indices].to(device)
+                if only_light_sources:
+                    if self.is_light_sources_computed:
+                        chosen_indices = torch.randint(0, self.light_sources_indices.shape[0], (batch_size,))
+                        return self.light_sources_indices[chosen_indices].to(device)
+                    else:
+                        assert validity is not None, "Validy needs to be defined for the lught sources samples"
+                        validity = validity.squeeze(-1).cpu()
+                        mask_combine = torch.logical_and(mask, validity)
+                        indices, nonzero_indices_whole = self.sample_considering_mask(mask_combine, device, batch_size)
+                        self.light_sources_indices = nonzero_indices_whole.long().cpu()
+                        self.is_light_sources_computed = True
+                        return indices
                 else:
-                    indices, nonzero_indices_whole = self.sample_considering_mask(mask, device, batch_size)
-                    self.fast_exposed_indices = nonzero_indices_whole.long().cpu()
-                    self.is_fast_exposed_computed = True
-                    return indices
+                    if self.is_fast_exposed_computed:
+                        chosen_indices = torch.randint(0, self.fast_exposed_indices.shape[0], (batch_size,))
+                        return self.fast_exposed_indices[chosen_indices].to(device)
+                    else:
+                        indices, nonzero_indices_whole = self.sample_considering_mask(mask, device, batch_size)
+                        self.fast_exposed_indices = nonzero_indices_whole.long().cpu()
+                        self.is_fast_exposed_computed = True
+                        return indices
             else:
                 if self.is_well_exposed_computed:
                     chosen_indices = torch.randint(0, self.well_exposed_indices.shape[0], (batch_size,))
@@ -200,7 +218,7 @@ class PixelSampler:
 
         return indices
 
-    def collate_image_dataset_batch(self, batch: Dict, num_rays_per_batch: int, keep_full_image: bool = False, is_fast_expo: bool = False):
+    def collate_image_dataset_batch(self, batch: Dict, num_rays_per_batch: int, keep_full_image: bool = False, is_fast_expo: bool = False, only_light_sources: bool = False): 
         """
         Operates on a batch of images and samples pixels to use for generating rays.
         Returns a collated batch which is input to the Graph.
@@ -222,8 +240,11 @@ class PixelSampler:
                 )
             else:
                 indices = self.sample_method(
-                num_rays_per_batch, num_images, image_height, image_width, mask=batch["mask"], device=device, is_fast_expo=is_fast_expo
-                )
+                num_rays_per_batch, num_images, image_height, image_width, mask=batch["mask"], device=device, 
+                    is_fast_expo=is_fast_expo, 
+                    only_light_sources=only_light_sources,
+                    validity=batch["saturation_mask"]
+                    )
         else:
             if self.config.is_equirectangular:
                 indices = self.sample_method_equirectangular(
@@ -347,13 +368,19 @@ class PixelSampler:
                         self.well_image_batch[key] = image_batch[key][well_ones]
                         self.fast_image_batch[key] = image_batch[key][fast_ones]
                 well_pixel_batch = self.collate_image_dataset_batch(
-                    self.well_image_batch, int(1.0 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image
+                    self.well_image_batch, int(0.2 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image
                 )
                 pixel_batch = well_pixel_batch #.copy()
                 fast_pixel_batch = self.collate_image_dataset_batch(
-                    self.fast_image_batch, int(0.0 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True
+                    self.fast_image_batch, int(0.3 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True
                 )
                 for key, value in fast_pixel_batch.items():
+                    pixel_batch[key] = torch.cat((pixel_batch[key], value), 0)
+
+                light_pixel_batch = self.collate_image_dataset_batch(
+                    self.fast_image_batch, int(0.5 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True, only_light_sources=True
+                )
+                for key, value in light_pixel_batch.items():
                     pixel_batch[key] = torch.cat((pixel_batch[key], value), 0)
             else:
                 pixel_batch = self.collate_image_dataset_batch(

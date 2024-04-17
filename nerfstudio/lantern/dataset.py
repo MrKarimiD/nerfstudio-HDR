@@ -125,6 +125,10 @@ class HDRInputDataset(InputDataset):
         # Let's and the masks
         # data["mask"] = torch.logical_and(data["mask"], data["saturation_mask"])
 
+        # image_filename = self._dataparser_outputs.image_filenames[image_idx].stem
+        # if image_filename.startswith('right_sfm'):
+        #     data["mask"] = torch.zeros(data["mask"].shape)
+
         if self._dataparser_outputs.exposures is not None:
             exposure_value = self._dataparser_outputs.exposures[image_idx]
             data["exposure"] = exposure_value

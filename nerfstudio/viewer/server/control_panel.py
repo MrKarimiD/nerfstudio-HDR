@@ -377,7 +377,7 @@ def _get_colormap_options(dimensions: int, dtype: type) -> List[Colormaps]:
     """
     colormap_options: List[Colormaps] = []
     if dimensions == 3:
-        colormap_options = ["default"]
+        colormap_options = ["default", "inverse-mu"]
     if dimensions == 1 and dtype == torch.float:
         colormap_options = [c for c in list(get_args(Colormaps)) if c not in ("default", "pca")]
     if dimensions > 3:
