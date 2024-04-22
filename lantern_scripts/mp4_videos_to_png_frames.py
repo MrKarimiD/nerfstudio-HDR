@@ -25,12 +25,20 @@ if __name__ == '__main__':
         os.makedirs(output_folder, exist_ok=True)
 
         # Run FFmpeg command to convert video to PNG frames
-        command = [
-            "ffmpeg",
-            "-i", video,
-            "-vf", "fps=29.97",
-            f"{output_folder}/output_%04d.png"
-        ]
+        if video_name == 'left_sfm' or video_name == 'right_sfm':
+            command = [
+                "ffmpeg",
+                "-i", video,
+                "-vf", "fps=4.0",
+                f"{output_folder}/output_%04d.png"
+            ]
+        else:
+            command = [
+                "ffmpeg",
+                "-i", video,
+                "-vf", "fps=15.0",
+                f"{output_folder}/output_%04d.png"
+            ]
         subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         # only keep frames where mod 10 = 0

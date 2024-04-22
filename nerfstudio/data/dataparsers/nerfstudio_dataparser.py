@@ -61,7 +61,7 @@ class NerfstudioDataParserConfig(DataParserConfig):
     """The method to use for orientation."""
     center_method: Literal["poses", "focus", "none"] = "poses"
     """The method to use to center the poses."""
-    auto_scale_poses: bool = False
+    auto_scale_poses: bool = True
     """Whether to automatically scale the poses to fit in +/- 1 bounding box."""
     train_split_fraction: float = 0.9
     """The fraction of images to use for training. The remaining images are for eval."""

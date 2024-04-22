@@ -105,7 +105,7 @@ class OpenSFMToNeRFStudioDataset(BaseConverterToNerfstudioDataset):
     """If True, skips copying and downscaling of images and only runs COLMAP if possible and enabled"""
     is_HDR: bool = False
     """If True, process the .exr files as HDR images."""
-    use_mask: bool = False
+    use_mask: bool = True
     """If True, process the .exr files with mask."""
     use_exposure: bool = False
     """If True, using different exposures."""
@@ -148,6 +148,9 @@ class OpenSFMToNeRFStudioDataset(BaseConverterToNerfstudioDataset):
             frames_names = openSFM_reconstruction[0]['shots'].keys()
             frames_names = sorted(frames_names)
 
+            # Remove GT files from the training sets
+            frames_names = list(set(frames_names) - set( [x for x in frames_names if x.startswith('GT')]))
+            
             # Computing the basis transform matrix
             rot_list = []
             trn_list = []
@@ -209,26 +212,25 @@ class OpenSFMToNeRFStudioDataset(BaseConverterToNerfstudioDataset):
             # Convert OpenSFM coordinates to the NeRFStudio
             camera_dict = {}
             camera_dict["frames"] = []
-            for idx, fname in enumerate(frames_names):
+            for idx, fname in enumerate([x for x in frames_names if x.startswith('left_e1')]):
                 # if fname.startswith("left_sfm"):
-                if fname.startswith("left_e1"):
-                    right_fname = fname.replace("left_e1", "right_e2")
-                    # right_fname = fname.replace("left_sfm", "right_sfm")
-                    shot_data = openSFM_reconstruction[0]['shots'][fname]
-                    left_C2W, left_rvec, left_tvec = opensfm_to_opengl(shot_data)
-                    if valid_idx[idx]:
-                        camera_dict["frames"].append(
-                        {
-                            "file_path": fname.split('.')[0],
-                            "transform_matrix": left_C2W.tolist()
-                        })
-                        
-                        right_C2W = left_C2W @ basis_change
-                        camera_dict["frames"].append(
-                        {
-                            "file_path": right_fname.split('.')[0],
-                            "transform_matrix": right_C2W.tolist()
-                        })
+                right_fname = fname.replace("left_e1", "right_e2")
+                # right_fname = fname.replace("left_sfm", "right_sfm")
+                shot_data = openSFM_reconstruction[0]['shots'][fname]
+                left_C2W, left_rvec, left_tvec = opensfm_to_opengl(shot_data)
+                if valid_idx[idx]:
+                    camera_dict["frames"].append(
+                    {
+                        "file_path": fname.split('.')[0],
+                        "transform_matrix": left_C2W.tolist()
+                    })
+                    
+                    right_C2W = left_C2W @ basis_change
+                    camera_dict["frames"].append(
+                    {
+                        "file_path": right_fname.split('.')[0],
+                        "transform_matrix": right_C2W.tolist()
+                    })
                         
             with open(self.output_dir / 'panoramic_transforms.json', 'w') as f:
                 json.dump(camera_dict, f, indent=4)
