@@ -11,43 +11,8 @@ import numpy as np
 def apply_correction(coefs, img, CORRECTION_CURVE_TYPE) -> np.ndarray:
     # check that img is in range 0-255
     assert img.dtype == np.uint8
-    
-    B, G, R = coefs
-    original_shape = img.shape
-    img = img.astype(np.float32)
-    img = img.reshape(-1, 3)
-    if CORRECTION_CURVE_TYPE == "deg2":
-        img[:, 0] = B[0] + img[:, 0] * B[1] + img[:, 0] ** 2 * B[2]
-        img[:, 1] = G[0] + img[:, 1] * G[1] + img[:, 1] ** 2 * G[2]
-        img[:, 2] = R[0] + img[:, 2] * R[1] + img[:, 2] ** 2 * R[2]
-    if CORRECTION_CURVE_TYPE == "deg3":
-        img[:, 0] = B[0] + img[:, 0] * B[1] + \
-            img[:, 0] ** 2 * B[2] + img[:, 0] ** 3 * B[3]
-        img[:, 1] = G[0] + img[:, 1] * G[1] + \
-            img[:, 1] ** 2 * G[2] + img[:, 0] ** 3 * G[3]
-        img[:, 2] = R[0] + img[:, 2] * R[1] + \
-            img[:, 2] ** 2 * R[2] + img[:, 0] ** 3 * R[3]
-    elif CORRECTION_CURVE_TYPE == "deg1":
-        img[:, 0] = B[0] + img[:, 0] * B[1]
-        img[:, 1] = G[0] + img[:, 1] * G[1]
-        img[:, 2] = R[0] + img[:, 2] * R[1]
-    elif CORRECTION_CURVE_TYPE == "deg2_no_offset":
-        img[:, 0] = img[:, 0] * B[0] + img[:, 0] ** 2 * B[1]
-        img[:, 1] = img[:, 1] * G[0] + img[:, 1] ** 2 * G[1]
-        img[:, 2] = img[:, 2] * R[0] + img[:, 2] ** 2 * R[1]
-    elif CORRECTION_CURVE_TYPE == "deg3_no_offset":
-        img[:, 0] = img[:, 0] * B[0] + \
-            img[:, 0] ** 2 * B[1] + img[:, 0] ** 3 * B[2]
-        img[:, 1] = img[:, 1] * G[0] + \
-            img[:, 1] ** 2 * G[1] + img[:, 1] ** 3 * G[2]
-        img[:, 2] = img[:, 2] * R[0] + \
-            img[:, 2] ** 2 * R[1] + img[:, 2] ** 3 * R[2]
-    elif CORRECTION_CURVE_TYPE == "deg1_no_offset":
-        img[:, 0] = img[:, 0] * B[0]
-        img[:, 1] = img[:, 1] * G[0]
-        img[:, 2] = img[:, 2] * R[0]
-    img = img.clip(0, 255)
-    img = img.reshape(original_shape)
+    assert CORRECTION_CURVE_TYPE in ['gamma']
+    img = ((img.astype(np.float32) / 255.0) ** coefs[None, None, :]) * 255.0
     return img
 
 
