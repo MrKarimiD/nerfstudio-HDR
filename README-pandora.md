@@ -4,6 +4,9 @@
 
 ## 0. Setup
 
+
+Open this folder in VS Code Dev Container extension!
+
 ```
 export PYTHONPATH=$pwd:$PYTHONPATH
 pip install skylibs equilib
