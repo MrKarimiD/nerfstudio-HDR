@@ -4,6 +4,7 @@ import math
 import os
 import re
 import shutil
+from copy import deepcopy
 from pathlib import Path
 
 import cv2
@@ -105,6 +106,18 @@ if __name__ == "__main__":
     i_test = np.setdiff1d(i_eval_test, i_eval)  # eval images are the remaining images
     assert len(i_eval) == num_eval_images
 
+    hdr_nerf_transforms_data = dict()
+    hdr_nerf_exposures_data = dict()
+    for split, indices in zip(("train", "val", "test"), (i_train, i_eval, i_test)):
+        hdr_nerf_transforms_data[split] = deepcopy(transforms_data)
+        hdr_nerf_transforms_data[split]["frames"] = [selected_left_frames[i] for i in indices] + [selected_right_frames[i] for i in indices]
+        hdr_nerf_exposures_data[split] = {k: v for k, v in new_exposures.items() if k in [frame["file_path"] for frame in hdr_nerf_transforms_data[split]["frames"]]}
+
+        with open(os.path.join(args.output_dir, f'transforms_{split}.json'), "w") as outfile:
+            json.dump(hdr_nerf_transforms_data[split], outfile, indent=4)
+
+        with open(os.path.join(args.output_dir, f'exposure_{split}.json'), "w") as outfile:
+            json.dump(hdr_nerf_exposures_data[split], outfile, indent=4)
 
     # has_split_files_spec = any(f"{split}_filenames" in meta for split in ("train", "val", "test"))
 
