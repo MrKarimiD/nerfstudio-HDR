@@ -349,12 +349,4 @@ class NerfactoField(Field):
         rgb = self.mlp_head(h).view(*outputs_shape, -1).to(directions)
         outputs.update({FieldHeadNames.RGB: rgb})
 
-        rgb_fast = self.mlp_head_fast(h).view(*outputs_shape, -1).to(directions)
-        outputs.update({FieldHeadNames.RGB_FAST: rgb_fast})
-
-        if self.predicts_validity:
-            h_no_grad = h.clone()
-            validity = self.mlp_validity(h_no_grad).view(*outputs_shape, -1).to(directions)
-            outputs.update({FieldHeadNames.VALIDITY: validity})
-        
         return outputs

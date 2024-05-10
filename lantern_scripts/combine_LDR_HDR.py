@@ -5,9 +5,9 @@ from envmap import EnvironmentMap, rotation_matrix
 from hdrio import imwrite
 
 # Outdoor Table
-LDR_dir = '/mnt/data/arch_level1/panoramas_first_100/'
-HDR_dir = '/mnt/data/arch_level1/panoramas_256x512_hdr/'
-output_dir = '/mnt/data/arch_level1/panoramas_LDR_HDR_small/'
+LDR_dir = '/mnt/data/nerfstudio_ds/real_data/lab_downstairs_data/left_e1_linearized/'
+HDR_dir = '/mnt/data/nerfstudio_ds/real_data/lab_downstairs_data/left_e1_ldr2hdr_network/'
+output_dir = '/mnt/data/nerfstudio_ds/real_data/lab_downstairs_data/left_e1_ldr2hdr_network_high_res/'
 
 imgFiles = [os.path.join(LDR_dir, f) for f in os.listdir(LDR_dir) if os.path.isfile(os.path.join(LDR_dir, f)) and f.endswith('.png')]
 imgFiles.sort()
@@ -21,7 +21,7 @@ for ldr_addr in tqdm(imgFiles):
     hdr_pano = EnvironmentMap(hdr_addr, 'latlong')
     hdr_pano.resize(1920)
 
-    out_pano = ldr_pano.data ** 2.2
+    out_pano = ldr_pano.data # ** 2.2
     list_hdr = hdr_pano.data > 1.0
     print("list_hdr.shape: ", list_hdr.shape, "list_hdr.shape: ",  ldr_pano.data.shape)
     out_pano[list_hdr] = hdr_pano.data[list_hdr]

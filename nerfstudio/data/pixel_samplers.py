@@ -50,6 +50,9 @@ class PixelSamplerConfig(InstantiateConfig):
     is_equirectangular: bool = False
     """List of whether or not camera i is equirectangular."""
 
+    lantern_steps: int = 1
+    """  Define which steps of lantern is going on!! """
+
 
 class PixelSampler:
     """Samples 'pixel_batch's from 'image_batch's.
@@ -155,7 +158,7 @@ class PixelSampler:
                         chosen_indices = torch.randint(0, self.light_sources_indices.shape[0], (batch_size,))
                         return self.light_sources_indices[chosen_indices].to(device)
                     else:
-                        assert validity is not None, "Validy needs to be defined for the lught sources samples"
+                        assert validity is not None, "Validy needs to be defined for the light sources samples"
                         validity = validity.squeeze(-1).cpu()
                         mask_combine = torch.logical_and(mask, validity)
                         indices, nonzero_indices_whole = self.sample_considering_mask(mask_combine, device, batch_size)
@@ -239,11 +242,19 @@ class PixelSampler:
                     num_rays_per_batch, num_images, image_height, image_width, mask=batch["mask"], device=device
                 )
             else:
-                indices = self.sample_method(
-                num_rays_per_batch, num_images, image_height, image_width, mask=batch["mask"], device=device, 
-                    is_fast_expo=is_fast_expo, 
-                    only_light_sources=only_light_sources,
-                    validity=batch["saturation_mask"]
+                if "saturation_mask" in batch:
+                    indices = self.sample_method(
+                        num_rays_per_batch, num_images, image_height, image_width, mask=batch["mask"], device=device, 
+                        is_fast_expo=is_fast_expo, 
+                        only_light_sources=only_light_sources,
+                        validity=batch["saturation_mask"]
+                    )
+                else:
+                    indices = self.sample_method(
+                        num_rays_per_batch, num_images, image_height, image_width, mask=batch["mask"], device=device, 
+                        is_fast_expo=is_fast_expo, 
+                        only_light_sources=only_light_sources,
+                        validity=None
                     )
         else:
             if self.config.is_equirectangular:
@@ -367,19 +378,33 @@ class PixelSampler:
                     for key in image_batch.keys():
                         self.well_image_batch[key] = image_batch[key][well_ones]
                         self.fast_image_batch[key] = image_batch[key][fast_ones]
-                well_pixel_batch = self.collate_image_dataset_batch(
-                    self.well_image_batch, int(0.2 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image
-                )
+                
+                assert self.config.lantern_steps == 1 or self.config.lantern_steps == 2, "The step of Lantern should be either 1 or 2!! "
+                
+                if self.config.lantern_steps == 1:
+                    well_pixel_batch = self.collate_image_dataset_batch(
+                        self.well_image_batch, int(1.0 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image
+                    )
+                    fast_pixel_batch = self.collate_image_dataset_batch(
+                        self.fast_image_batch, int(0.0 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True
+                    )
+                    light_pixel_batch = self.collate_image_dataset_batch(
+                        self.fast_image_batch, int(0.0 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True, only_light_sources=True
+                    )
+                else:
+                    well_pixel_batch = self.collate_image_dataset_batch(
+                        self.well_image_batch, int(0.2 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image
+                    )
+                    fast_pixel_batch = self.collate_image_dataset_batch(
+                        self.fast_image_batch, int(0.3 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True
+                    )
+                    light_pixel_batch = self.collate_image_dataset_batch(
+                        self.fast_image_batch, int(0.5 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True, only_light_sources=True
+                    )
+                
                 pixel_batch = well_pixel_batch #.copy()
-                fast_pixel_batch = self.collate_image_dataset_batch(
-                    self.fast_image_batch, int(0.3 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True
-                )
                 for key, value in fast_pixel_batch.items():
                     pixel_batch[key] = torch.cat((pixel_batch[key], value), 0)
-
-                light_pixel_batch = self.collate_image_dataset_batch(
-                    self.fast_image_batch, int(0.5 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True, only_light_sources=True
-                )
                 for key, value in light_pixel_batch.items():
                     pixel_batch[key] = torch.cat((pixel_batch[key], value), 0)
             else:

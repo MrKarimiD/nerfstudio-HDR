@@ -28,6 +28,8 @@ from nerfstudio.process_data.base_converter_to_nerfstudio_dataset import (
 from nerfstudio.utils.rich_utils import CONSOLE
 from nerfstudio.utils import io
 
+from nerfstudio.process_data.openSFM_to_nerfstudio import opensfm_to_opengl, distance
+
 @dataclass
 class ProcessAlignedPano(BaseConverterToNerfstudioDataset):
     """Process panorama data into a nerfstudio dataset. Skip the COLMAP
@@ -41,7 +43,7 @@ class ProcessAlignedPano(BaseConverterToNerfstudioDataset):
     
     metadata: Path = ""
     """Path the metadata of the panoramas sequence."""
-    num_downscales: int = 3
+    num_downscales: int = 0
     """Number of times to downscale the images. Downscales by 2 each time. For example a value of 3
         will downscale the images by 2x, 4x, and 8x."""
     max_dataset_size: int = 300
@@ -55,12 +57,13 @@ class ProcessAlignedPano(BaseConverterToNerfstudioDataset):
     """Portion of the image to crop. All values should be in [0,1]. (top, bottom, left, right)"""
     skip_image_processing: bool = False
     """If True, skips copying and downscaling of images and only runs COLMAP if possible and enabled"""
-    is_HDR: bool = False
+    is_HDR: bool = True
     """If True, process the .exr files as HDR images."""
-    use_mask: bool = False
+    use_mask: bool = True
     """If True, process the .exr files with mask."""
-    use_exposure: bool = False
+    is_metadata_from_openSFM: bool = False
     """If True, using different exposures."""
+    
 
     def main(self) -> None:
         """Process images into a nerfstudio dataset."""
@@ -74,16 +77,66 @@ class ProcessAlignedPano(BaseConverterToNerfstudioDataset):
             mask_dir.mkdir(parents=True, exist_ok=True)
         
         summary_log = []
-        pers_size = equirect_utils.compute_resolution_from_equirect(self.data, self.images_per_equirect)
-        CONSOLE.log(f"Generating {self.images_per_equirect} {pers_size} sized images per equirectangular image")
-        self.data = equirect_utils.generate_planar_projections_from_equirectangular_GT(
-            self.metadata, self.data, pers_size, 
-            self.images_per_equirect, crop_factor=self.crop_factor, clip_output = False,
-            use_mask = self.use_mask,
-            use_exposure = self.use_exposure
-        )
+        
+        if not self.skip_image_processing:
+            if self.is_metadata_from_openSFM:
+                openSFM_reconstruction = io.load_from_json(self.metadata)
+                frames_names = openSFM_reconstruction[0]['shots'].keys()
+                frames_names = sorted(frames_names)
+
+                # Remove GT files from the training sets
+                frames_names = list(set(frames_names) - set( [x for x in frames_names if x.startswith('GT')]))
+                    
+                # Convert OpenSFM coordinates to the NeRFStudio
+                translations = []
+                for fname in frames_names:
+                    # if fname.startswith("left_sfm"):
+                    if fname.startswith("left_e1"):
+                        shot_data = openSFM_reconstruction[0]['shots'][fname]
+                        _, _, left_tvec = opensfm_to_opengl(shot_data)
+                        translations.append(left_tvec)
+                    
+                translations_np = np.asarray(translations)
+                left_trn_median = np.median(translations_np, 0)
+                dist = distance(translations_np, left_trn_median)
+                percentile_95 = np.percentile(dist, 99)
+                valid_idx = dist < percentile_95
+
+                # Convert OpenSFM coordinates to the NeRFStudio
+                camera_dict = {}
+                camera_dict["frames"] = []
+                for idx, fname in enumerate([x for x in frames_names if x.startswith('left_e1')]):
+                    shot_data = openSFM_reconstruction[0]['shots'][fname]
+                    left_C2W, left_rvec, left_tvec = opensfm_to_opengl(shot_data)
+                    if valid_idx[idx]:
+                        camera_dict["frames"].append(
+                        {
+                            "file_path": fname.split('.')[0],
+                            "transform_matrix": left_C2W.tolist()
+                        })
+                            
+                with open(self.output_dir / 'panoramic_transforms.json', 'w') as f:
+                    json.dump(camera_dict, f, indent=4)
+                self.metadata = self.output_dir / 'panoramic_transforms.json'
+                    
+
+            metadata_dict = io.load_from_json(self.metadata)
+            
+            pers_size = equirect_utils.compute_resolution_from_equirect(self.data / 'left_e1', self.images_per_equirect)
+            CONSOLE.log(f"Generating {self.images_per_equirect} {pers_size} sized images per equirectangular image")
+            out_dir = equirect_utils.generate_planar_projections_from_equirectangular_GT(
+                self.metadata,
+                self.data / 'left_e1', pers_size, self.images_per_equirect, 
+                crop_factor=self.crop_factor, 
+                clip_output = False,
+                use_mask = self.use_mask,
+                prefix = 'left_e1'
+            )
+        else:
+            out_dir = self.data / 'left_e1' / "planar_projections"
         self.camera_type = "perspective"
-        metadata_dict = io.load_from_json(self.data / "transforms.json")
+        metadata_dict = io.load_from_json(out_dir / "transforms.json")
+        
         # Copy images to output directory
         cropped_images_filename = []
         cropped_masks_filename = []
@@ -92,6 +145,7 @@ class ProcessAlignedPano(BaseConverterToNerfstudioDataset):
             if self.use_mask:
                 cropped_masks_filename.append(Path(frame["mask_path"]))
         # Copy images to output directory
+        CONSOLE.log(f"Copying perspective images into the target directory")
         if self.is_HDR:
             copied_image_paths = process_data_utils.copy_images_list_EXR(
                 cropped_images_filename, image_dir=image_dir, verbose=self.verbose, num_downscales=self.num_downscales

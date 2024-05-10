@@ -49,6 +49,10 @@ from nerfstudio.process_data.openSFM_to_nerfstudio import (
     OpenSFMToNeRFStudioDataset
 )
 
+from nerfstudio.process_data.GT_HDR_to_nerfstudio import (
+    GTHDRoNeRFStudioDataset
+)
+
 from nerfstudio.process_data.video_to_nerfstudio_dataset import VideoToNerfstudioDataset
 from nerfstudio.utils.rich_utils import CONSOLE
 
@@ -410,6 +414,7 @@ Commands = Union[
     Annotated[ProcessAlignedPano, tyro.conf.subcommand(name="aligned_pano2plane")],
     Annotated[LanternImagesToNerfstudioDataset, tyro.conf.subcommand(name="lantern")],
     Annotated[OpenSFMToNeRFStudioDataset, tyro.conf.subcommand(name="lantern-openSFM")],
+    Annotated[GTHDRoNeRFStudioDataset, tyro.conf.subcommand(name="lantern-GT-HDR")],
 ]
 
 

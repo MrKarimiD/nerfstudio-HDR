@@ -60,6 +60,12 @@ class LanternModelConfig(NerfactoModelConfig):
 
     appearance_embed_dim: int = 32
 
+    lantern_steps: int = -1
+    """  Define which steps of lantern is going on!! """
+
+    apply_mu_law: bool = True
+    """  Define which steps of lantern is going on!! """
+
 
 class LanternModel(NerfactoModel):
     """Template Model."""
@@ -182,6 +188,11 @@ class LanternModel(NerfactoModel):
         validity = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.VALIDITY], weights=weights)
         rgb_fast = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB_FAST], weights=weights)
 
+        if self.config.apply_mu_law:
+            u = 5000.
+            rgb_fast = torch.exp(rgb_fast * torch.log(torch.tensor(u+1.))) - 1.
+            rgb_fast /= u
+       
         outputs = {
             "rgb": rgb,
             "rgb_fast": rgb_fast,
@@ -222,21 +233,37 @@ class LanternModel(NerfactoModel):
         self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
         ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         gt_rgb = batch["image"].to(self.device)
-        predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
+        
+        if batch["exposure"] == 1.0:
+            predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
+        else:
+            # if self.config.lantern_steps == 1:
+            return None, None
+            predicted_rgb = outputs["rgb_fast"]  # Blended with background (black if random background)
+            # if self.config.apply_mu_law:
+            #     from nerfstudio.utils.colormaps import ColormapOptions, Colormaps
+            #     cm = ColormapOptions('inverse-mu')
+            #     predicted_rgb = colormaps.apply_colormap(predicted_rgb, cm)
+            
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb)
         acc = colormaps.apply_colormap(outputs["accumulation"])
         depth = colormaps.apply_depth_colormap(
             outputs["depth"],
             accumulation=outputs["accumulation"],
         )
+        gt_rgb = batch["mask"] * gt_rgb
+        predicted_rgb = batch["mask"] * predicted_rgb
+        print("Exposure: ", batch['exposure'])
 
         combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
         combined_acc = torch.cat([acc], dim=1)
         combined_depth = torch.cat([depth], dim=1)
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
-        gt_rgb_tonemapped = torch.clamp(colormaps.apply_colormap(gt_rgb), 0, 1)
-        predicted_rgb_tonemapped = torch.clamp(colormaps.apply_colormap(predicted_rgb), 0, 1)
+        # gt_rgb_tonemapped = torch.clamp(colormaps.apply_colormap(gt_rgb), 0, 1)
+        gt_rgb_tonemapped = torch.clamp(gt_rgb, 0, 1)
+        # predicted_rgb_tonemapped = torch.clamp(colormaps.apply_colormap(predicted_rgb), 0, 1)
+        predicted_rgb_tonemapped = torch.clamp(predicted_rgb, 0, 1)
         predicted_rgb_tonemapped = torch.nan_to_num(predicted_rgb_tonemapped, nan=0.0)
         gt_rgb_tonemapped = torch.moveaxis(gt_rgb_tonemapped, -1, 0)[None, ...]
         predicted_rgb_tonemapped = torch.moveaxis(predicted_rgb_tonemapped, -1, 0)[None, ...]
@@ -313,10 +340,6 @@ class LanternModel(NerfactoModel):
         image = batch["image"].to(self.device)
 
         if "exposure" in batch:
-            # u = 10.
-            # img_uncompress = torch.exp(image * torch.log(torch.tensor(u+1.))) - 1.
-            # img_uncompress /= u
-            # img_uncompress = torch.pow(image, 2.2)
             exposures_resized = batch["exposure"].view(batch["exposure"].shape[0], 1)
             # img_uncompress_re_exposed =  exposures_resized * img_uncompress
             
@@ -339,8 +362,6 @@ class LanternModel(NerfactoModel):
             gt_image=image,
         )
 
-        # import pdb; pdb.set_trace()
-        
         # MSE loss for mask with weights
         # if "saturation_mask" in batch:
         #     mask_in_float = batch['saturation_mask'].type(torch.float).to(self.device)
@@ -351,37 +372,21 @@ class LanternModel(NerfactoModel):
         #     loss_dict["validity_loss_well_exposed"] = loss_mask_well_expo # 0.01
         #     loss_dict["validity_loss_fast_exposure"] = loss_mask_fast_expo
 
-        gt_rgb_w = gt_rgb.clone()
-        # u = 5000.
-        # gt_rgb_w = torch.log(1. + u * gt_rgb_w) / torch.log(torch.tensor(1.+u))
-
-        # gt_rgb_w[(exposures_resized != 1.0).repeat(1, 3)] = 1.0# torch.clamp(gt_rgb_w[(exposures_resized != 1.0).repeat(1, 3)] / 0.004, 0, 1)
-        # import pdb; pdb.set_trace()
-        gt_rgb_f = gt_rgb.clone()
-        u = 5000.
-        gt_rgb_f = torch.log(1. + u * gt_rgb_f) / torch.log(torch.tensor(1.+u))
-
-        # gt_rgb_f[(exposures_resized == 1.0).repeat(1, 3)] = gt_rgb_f[(exposures_resized == 1.0).repeat(1, 3)] * 0.004
-        # loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb_w, pred_rgb)
-        # loss_dict["rgb_loss_fast"] = self.rgb_loss(gt_rgb_f, pred_rgb_f)
-        # loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb_f, pred_rgb_f)
+        assert self.config.lantern_steps == 1 or self.config.lantern_steps == 2, "The step of Lantern should be either 1 or 2!! "
         
-        loss_dict["rgb_loss"] = (mask_w_w * ((gt_rgb_w - pred_rgb) ** 2)).mean()
-        loss_dict["rgb_loss_fast"] = (mask_f_w * ((gt_rgb_f - pred_rgb_f) ** 2)).mean()
+        if self.config.lantern_steps == 1:
+            loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
+        else:
+            gt_rgb_w = gt_rgb.clone()
+            
+            gt_rgb_f = gt_rgb.clone()
+            if self.config.apply_mu_law:
+                u = 5000.
+                gt_rgb_f = torch.log(1. + u * gt_rgb_f) / torch.log(torch.tensor(1.+u))
 
-        # RGB_fast = (pred_rgb * pred_rgb_f) * 0.004
-        # loss_dict["rgb_loss_fast"] = 0.0005 * (mask_f_w * ((gt_rgb_f - RGB_fast) ** 2)).mean()
-        # print("rgb_loss_fast: ", loss_dict["rgb_loss_fast"])
-        
-        # loss_dict["rgb_loss_fast"] = 300.0 * (mask_f_w * ((gt_rgb_f - pred_rgb_f) ** 2)).mean()
-        # import pdb; pdb.set_trace()
-        
-        # if weights_for_RGB_loss is not None:
-        #     loss_dict["rgb_loss"] = (weights_for_RGB_loss * ((gt_rgb - pred_rgb) ** 2)).mean()
-        # else:
-        # loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
+            loss_dict["rgb_loss"] = (mask_w_w * ((gt_rgb_w - pred_rgb) ** 2)).mean()
+            loss_dict["rgb_loss_fast"] = (mask_f_w * ((gt_rgb_f - pred_rgb_f) ** 2)).mean()
 
-        # print("rgb_loss: ", loss_dict["rgb_loss"], ", rgb_fast_expo_loss: ", loss_dict["rgb_fast_expo_loss"])
         if self.training:
             loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
                 outputs["weights_list"], outputs["ray_samples_list"]

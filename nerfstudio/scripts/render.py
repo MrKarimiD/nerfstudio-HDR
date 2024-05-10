@@ -171,12 +171,12 @@ def _render_trajectory_video(
                             .cpu()
                             .numpy()
                         )
-                    elif is_fast_exposure:
-                        u = 5000.
-                        img_uncompress = torch.exp(output_image * torch.log(torch.tensor(u+1.))) - 1.
-                        img_uncompress /= u
-                        output_image = img_uncompress
-                        output_image = (output_image.cpu().numpy())
+                    # elif is_fast_exposure:
+                    #     u = 5000.
+                    #     img_uncompress = torch.exp(output_image * torch.log(torch.tensor(u+1.))) - 1.
+                    #     img_uncompress /= u
+                    #     output_image = img_uncompress
+                    #     output_image = (output_image.cpu().numpy())
                     elif is_validity:
                         mask_f = torch.clip(outputs["validity_f"], 0, 1)
                         # mask_f = torch.ones(mask_f.shape).to(mask_f.get_device()) - mask_f
