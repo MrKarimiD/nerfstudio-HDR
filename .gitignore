@@ -1,6 +1,7 @@
 # Ours
 Dual_Cameras
 gt_test
+hdr-nerfacto-subset-out
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

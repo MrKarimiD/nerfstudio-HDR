@@ -247,7 +247,7 @@ class HdrNerfactoField(Field):
             exposures = torch.ones(ray_samples.frustums.directions.shape[:-1], device=ray_samples.frustums.directions.device)[..., None]
         else:
             exposures = ray_samples.metadata['exposures'].to(ray_samples.frustums.directions.device)
-        exposures = exposures.reshape(-1, 1).clone().detach() / 200
+        exposures = exposures.reshape(-1, 1).clone().detach()
 
         assert density_embedding is not None
         outputs = {}

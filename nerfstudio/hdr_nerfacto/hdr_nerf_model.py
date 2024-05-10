@@ -358,6 +358,7 @@ class HdrNerfactoModel(Model):
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         loss_dict = {}
         image = batch["image"].to(self.device)
+        
         pred_rgb, gt_rgb = self.renderer_rgb.blend_background_for_loss_computation(
             pred_image=outputs["rgb"],
             pred_accumulation=outputs["accumulation"],
@@ -369,6 +370,7 @@ class HdrNerfactoModel(Model):
         )
 
         loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
+        # TODO: check that
         # if self.training:
         #     loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
         #         outputs["weights_list"], outputs["ray_samples_list"]

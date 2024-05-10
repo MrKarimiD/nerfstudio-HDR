@@ -58,9 +58,9 @@ class HDRNerfactoInputDataset(InputDataset):
         Args:
             image_idx: The image index in the dataset.
         """
-        image_filename = self._dataparser_outputs.image_filenames[image_idx]
+        image_filename = str(self._dataparser_outputs.image_filenames[image_idx]).replace('_linear.exr', '.png')
         #print('image_filename', image_filename)
-        hdr_image = cv2.imread(str(image_filename),  cv2.IMREAD_UNCHANGED)
+        hdr_image = cv2.imread(str(image_filename))
         # print('hdr_image', hdr_image.shape, hdr_image.dtype)
         # print('hdr_image', hdr_image.max(), hdr_image.min())
         # print('hdr_image', hdr_image[0,0,:])
@@ -70,8 +70,8 @@ class HDRNerfactoInputDataset(InputDataset):
             height, width = hdr_image.shape[:2]
             newsize = (int(width * self.scale_factor), int(height * self.scale_factor))
             hdr_image = cv2.resize(hdr_image, newsize, interpolation = cv2.INTER_LINEAR)
-        hdr_image = cv2.cvtColor(hdr_image, cv2.COLOR_BGR2RGB)
-        hdr_image = hdr_image.astype("float32")  # shape is (h, w) or (h, w, 3 or 4)
+        hdr_image = cv2.cvtColor(hdr_image, cv2.COLOR_BGR2RGB) 
+        hdr_image = hdr_image.astype("float32") / 255 # shape is (h, w) or (h, w, 3 or 4)
         if len(hdr_image.shape) == 2:
             hdr_image = hdr_image[:, :, None].repeat(3, axis=2)
         assert len(hdr_image.shape) == 3
@@ -87,11 +87,11 @@ class HDRNerfactoInputDataset(InputDataset):
         """
         image = torch.from_numpy(self.get_numpy_image(image_idx).astype("float32"))
         #print('a', image.max())
-        image = image * self._dataparser_outputs.exposures[image_idx]
+        # image = image * self._dataparser_outputs.exposures[image_idx]
         # print('b', image.max())
         
-        if self._dataparser_outputs.alpha_color is not None and image.shape[-1] == 4:
-            image = image[:, :, :3] * image[:, :, -1:] + self._dataparser_outputs.alpha_color * (1.0 - image[:, :, -1:])
+        # if self._dataparser_outputs.alpha_color is not None and image.shape[-1] == 4:
+        #     image = image[:, :, :3] * image[:, :, -1:] + self._dataparser_outputs.alpha_color * (1.0 - image[:, :, -1:])
         return image
 
     def get_data(self, image_idx: int) -> Dict:
