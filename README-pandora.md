@@ -132,9 +132,8 @@ It will be trained on the Laval indoor HDR dataset to do this task.
 
 TODO: validate this part
 
-## 4. Train from scratch or fine-tune the NeRF model using MomoNet's predictions
-
-
+## 4. Evaluation
 
 ```
+ns-eval --load-config outputs/LVSN_LAB_OpenSFM/hdr-nerfacto/2024-05-10_032723/config.yml --output-path ablations_out/hdr_nerfacto/output.json --render-output-path ablations_out/hdr-nerfacto
 ```

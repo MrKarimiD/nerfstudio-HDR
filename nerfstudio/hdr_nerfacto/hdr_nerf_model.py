@@ -302,6 +302,7 @@ class HdrNerfactoModel(Model):
         ray_samples_list.append(ray_samples)
 
         rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
+        rgb_fast = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB_FAST], weights=weights)
         depth = self.renderer_depth(weights=weights, ray_samples=ray_samples)
         accumulation = self.renderer_accumulation(weights=weights)
 
@@ -312,6 +313,7 @@ class HdrNerfactoModel(Model):
 
         outputs = {
             "rgb": rgb,
+            "rgb_fast": rgb_fast,
             "accumulation": accumulation,
             "depth": depth,
             "rgb_hdr": rgb_hdr,

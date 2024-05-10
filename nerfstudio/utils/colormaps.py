@@ -43,9 +43,9 @@ class ColormapOptions:
     """ Whether to invert the output colormap """
     exposure_scale: float = 0
     """Scale the brightness prior to tonemapping by 2 ^ Exposure"""
-    use_mu_law: bool = True
+    use_mu_law: bool = False
     """Use mu-law de-compression for HDR images"""
-    use_gamma: bool = True
+    use_gamma: bool = False
     """Use gamma for HDR images"""
 
 
@@ -74,12 +74,14 @@ def apply_colormap(
             
             img_gamma_22 = image
             if colormap_options.use_mu_law:
+                raise Exception('this shouldnt be used')
                 u = 5000.
                 img_gamma_22 = torch.exp(image * torch.log(torch.tensor(u+1.))) - 1.
                 img_gamma_22 /= u
             
             img_gamma_22 *= 2.**(colormap_options.exposure_scale)
             if colormap_options.use_gamma:
+                raise Exception('this shouldnt be used')
                 img_gamma_22 = torch.pow(img_gamma_22, 1./2.2)
             return torch.clamp(img_gamma_22, 0., 1.)
         else:

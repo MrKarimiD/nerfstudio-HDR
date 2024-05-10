@@ -43,6 +43,7 @@ class FieldHeadNames(Enum):
     GRADIENT = "gradient"
     
     RGB_HDR = "rgb_hdr"                        # HDR-Nerfacto
+    RGB_FAST = "rgb_fast"                      # HDR-Nerfacto
     PRED_RGB_LDR = "pred_rgb_ldr"              # HDR-Nerfacto
     ZERO_RADIANCE_CRF = "zero_radiance_crf"    # HDR-Nerfacto
 

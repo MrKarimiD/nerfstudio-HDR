@@ -318,6 +318,11 @@ class HdrNerfactoField(Field):
         log_rgb_hdr = self.mlp_head(h) # .view(*outputs_shape, -1).to(directions)
         rgb_hdr = torch.exp(log_rgb_hdr).view(*outputs_shape, -1).to(directions)
         log_rgb_hdr_exposed = log_rgb_hdr + torch.log(exposures)
+        log_rgb_hdr_exposed_fast = log_rgb_hdr + torch.log(exposures * 0.004) # TODO: adaptive fast exposure
+
+        pred_rgb_fast = torch.cat([
+            self.crf_mlps[channel](log_rgb_hdr_exposed_fast[..., channel:channel+1]) for channel in range(3)
+        ], dim=-1).view(*outputs_shape, -1).to(directions)
 
         pred_rgb_ldr = torch.cat([
             self.crf_mlps[channel](log_rgb_hdr_exposed[..., channel:channel+1]) for channel in range(3)
@@ -331,6 +336,7 @@ class HdrNerfactoField(Field):
 
         outputs.update({
             FieldHeadNames.RGB: pred_rgb_ldr,
+            FieldHeadNames.RGB_FAST: pred_rgb_fast,
             FieldHeadNames.RGB_HDR: rgb_hdr,
             FieldHeadNames.ZERO_RADIANCE_CRF: zero_radiance_crf,
         })
