@@ -66,13 +66,14 @@ from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 from nerfstudio.pipelines.dynamic_batch import DynamicBatchPipelineConfig
 from nerfstudio.plugins.registry import discover_methods
 
-from nerfstudio.lantern.config import Get_lantern_config
+from nerfstudio.lantern.config import Get_lantern_config, Get_PanoHDR_Nerfacto_config
 
 method_configs: Dict[str, TrainerConfig] = {}
 descriptions = {
     "nerfacto": "Recommended real-time model tuned for real captures. This model will be continually updated.",
     "nerfacto-HDR": "Nerfacto that take HDR as input, and output HDR field.",
-    "lantern-nerfacto": "Nerfacto that take HDR as input, and output HDR field.",
+    "lantern-nerfacto": "Nerfacto that train on two exposures.",
+    "panoHDR-nerfacto": "Nerfacto that take HDR as input, and output HDR field.",
     "depth-nerfacto": "Nerfacto with depth supervision.",
     "volinga": "Real-time rendering model from Volinga. Directly exportable to NVOL format at https://volinga.ai/",
     "instant-ngp": "Implementation of Instant-NGP. Recommended real-time model for unbounded scenes.",
@@ -122,6 +123,7 @@ method_configs["nerfacto"] = TrainerConfig(
 )
 
 method_configs["lantern-nerfacto"] = Get_lantern_config()
+method_configs["panoHDR-nerfacto"] = Get_PanoHDR_Nerfacto_config()
 
 method_configs["nerfacto-big"] = TrainerConfig(
     method_name="nerfacto",

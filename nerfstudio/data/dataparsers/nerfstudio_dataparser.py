@@ -294,8 +294,11 @@ class Nerfstudio(DataParser):
         else:
             distortion_params = torch.stack(distort, dim=0)[idx_tensor]
 
-        exposure_tensor = torch.tensor([exposures], dtype=torch.float32).T
-
+        if len(exposures) != 0:
+            exposure_tensor = torch.tensor([exposures], dtype=torch.float32).T
+        else:
+            exposure_tensor = []
+        
         cameras = Cameras(
             fx=fx,
             fy=fy,
