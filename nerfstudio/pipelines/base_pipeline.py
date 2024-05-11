@@ -395,9 +395,22 @@ class VanillaPipeline(Pipeline):
                         camera_indices = camera_ray_bundle.camera_indices
                         assert camera_indices is not None
                         for key, val in images_dict.items():
-                            Image.fromarray((val * 255).byte().cpu().numpy()).save(
-                                output_path / "{0:06d}-{1}.jpg".format(int(camera_indices[0, 0, 0]), key)
-                            )
+                            if 'image_filename' in batch.keys():
+                                output_name = batch['image_filename'].split('.')[0] + '-' + key
+                                if key == 'img':
+                                    output_name = output_name + '.' + batch['image_filename'].split('.')[-1]
+                                else:
+                                    output_name = output_name + '.jpg'
+                            else:
+                                output_name = "{0:06d}-{1}.jpg".format(int(camera_indices[0, 0, 0]), key)
+                            if output_name.endswith('.exr'):
+                                import cv2
+                                render_image = cv2.cvtColor(val.cpu().numpy(), cv2.COLOR_BGR2RGB)
+                                cv2.imwrite(str(output_path / output_name), render_image)
+                            else:
+                                Image.fromarray((val * 255).byte().cpu().numpy()).save(
+                                    output_path / output_name
+                                )
                     assert "num_rays_per_sec" not in metrics_dict
                     metrics_dict["num_rays_per_sec"] = num_rays / (time() - inner_start)
                     fps_str = "fps"
