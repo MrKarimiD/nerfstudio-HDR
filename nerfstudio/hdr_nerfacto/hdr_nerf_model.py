@@ -403,7 +403,7 @@ class HdrNerfactoModel(Model):
             accumulation=outputs["accumulation"],
         )
 
-        combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
+        combined_rgb = predicted_rgb
         combined_acc = torch.cat([acc], dim=1)
         combined_depth = torch.cat([depth], dim=1)
 

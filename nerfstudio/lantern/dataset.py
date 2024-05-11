@@ -102,6 +102,11 @@ class HDRNerfactoInputDataset(InputDataset):
         """
         image = self.get_image(image_idx)
         data = {"image_idx": image_idx, "image": image}
+        
+         # TODO: this doesnt work for training
+        image_filename = self._dataparser_outputs.image_filenames[image_idx]
+        data["image_filename"] = str(image_filename.name)
+
         if self._dataparser_outputs.mask_filenames is not None:
             mask_filepath = self._dataparser_outputs.mask_filenames[image_idx]
             data["mask"] = get_image_mask_tensor_from_path(filepath=mask_filepath, scale_factor=self.scale_factor)

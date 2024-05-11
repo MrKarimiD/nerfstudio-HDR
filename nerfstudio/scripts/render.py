@@ -169,6 +169,10 @@ def _render_trajectory_video(
                             .cpu()
                             .numpy()
                         )
+                    elif rendered_output_name == "rgb_fast" or rendered_output_name == "rgb" or rendered_output_name == "rgb_hdr":
+                        output_image = (
+                            output_image.cpu().numpy()
+                        )
                     elif is_validity:
                         mask_f = torch.clip(outputs["validity_f"], 0, 1)
                         mask_f = torch.ones(mask_f.shape).to(mask_f.get_device()) - mask_f
@@ -186,9 +190,6 @@ def _render_trajectory_video(
                             .numpy()
                         )
                     elif image_format == "exr":
-                        u = 5000.
-                        output_image = torch.exp(output_image * torch.log(torch.tensor(u+1.))) - 1.
-                        output_image /= u
                         output_image = (
                             output_image.cpu().numpy()
                         )
