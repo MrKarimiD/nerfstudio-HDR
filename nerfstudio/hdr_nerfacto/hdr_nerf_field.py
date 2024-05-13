@@ -326,7 +326,7 @@ class HdrNerfactoField(Field):
         rgb_hdr = torch.exp(log_rgb_hdr_exposed).view(*outputs_shape, -1).to(directions)
         #print('rgb_hdr_min', rgb_hdr.min(), 'rgb_hdr_max', rgb_hdr.max())
 
-        # outputs[FieldHeadNames.RGB_HDR] = torch.clamp(rgb_hdr, 0, 1)
+        outputs[FieldHeadNames.RGB_LINEAR_CLIPPED] = torch.clamp(rgb_hdr, 0, 1)
         outputs[FieldHeadNames.RGB_HDR] = rgb_hdr
 
         if self.use_crf:

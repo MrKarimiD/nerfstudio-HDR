@@ -38,6 +38,7 @@ from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.density_fields import HashMLPDensityField
 from nerfstudio.hdr_nerfacto.hdr_nerf_field import HdrNerfactoField
+from nerfstudio.lantern.renderer import RGBRenderer_HDR
 from nerfstudio.model_components.losses import (
     MSELoss,
     distortion_loss,
@@ -143,6 +144,7 @@ class HdrNerfactoModelConfig(ModelConfig):
     unit_exposure_expected_value: float = 0.5
 
     use_crf: bool = True
+    clip_before_accumulation: bool = False
 
 
 class HdrNerfactoModel(Model):
@@ -237,6 +239,7 @@ class HdrNerfactoModel(Model):
 
         # renderers
         self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
+        self.renderer_rgb_hdr = RGBRenderer_HDR(background_color=self.config.background_color)
         self.renderer_accumulation = AccumulationRenderer()
         self.renderer_depth = DepthRenderer()
         self.renderer_normals = NormalsRenderer()
@@ -305,9 +308,18 @@ class HdrNerfactoModel(Model):
         ray_samples_list.append(ray_samples)
 
         # HDR-Nerfacto
-        rgb_hdr = self.renderer_rgb(
+        rgb_hdr = self.renderer_rgb_hdr(
             rgb=field_outputs[FieldHeadNames.RGB_HDR], weights=weights
         )
+        if self.config.clip_before_accumulation:
+            rgb_linear_clipped = self.renderer_rgb(
+                rgb=field_outputs[FieldHeadNames.RGB_LINEAR_CLIPPED], weights=weights
+            )
+        else:
+            # clipping only after accumulation (in the renderer)
+            rgb_linear_clipped = self.renderer_rgb(
+                rgb=field_outputs[FieldHeadNames.RGB_HDR], weights=weights
+            )
 
         depth = self.renderer_depth(weights=weights, ray_samples=ray_samples)
         accumulation = self.renderer_accumulation(weights=weights)
@@ -316,6 +328,7 @@ class HdrNerfactoModel(Model):
             "accumulation": accumulation,
             "depth": depth,
             "rgb_hdr": rgb_hdr,
+            "rgb_linear_clipped": rgb_linear_clipped,
         }
         if self.config.use_crf:
             rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
@@ -379,7 +392,7 @@ class HdrNerfactoModel(Model):
             )
         else:
             pred_rgb, gt_rgb = self.renderer_rgb.blend_background_for_loss_computation(
-                pred_image=outputs["rgb_hdr"],
+                pred_image=outputs["rgb_linear_clipped"],
                 pred_accumulation=outputs["accumulation"],
                 gt_image=image,
             )
@@ -412,7 +425,7 @@ class HdrNerfactoModel(Model):
         if self.config.use_crf:
             predicted_rgb = outputs["rgb"]
         else:
-            predicted_rgb = outputs["rgb_hdr"]
+            predicted_rgb = outputs["rgb_linear_clipped"]
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb)
         acc = colormaps.apply_colormap(outputs["accumulation"])
         depth = colormaps.apply_depth_colormap(

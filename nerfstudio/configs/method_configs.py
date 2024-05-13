@@ -129,8 +129,9 @@ method_configs["nerfacto"] = TrainerConfig(
 
 method_configs["lantern-nerfacto"] = Get_lantern_config()
 
-method_configs["hdr-nerfacto"] = get_hdr_nerfacto_config(use_crf=True)
-method_configs["hdr-nerfacto-wo-crf"] = get_hdr_nerfacto_config(use_crf=False)
+method_configs["hdr-nerfacto"] = get_hdr_nerfacto_config(use_crf=True, clip_before_accumulation=False)
+method_configs["hdr-nerfacto-wo-crf"] = get_hdr_nerfacto_config(use_crf=False, clip_before_accumulation=False)
+method_configs["hdr-nerfacto-wo-crf-clip-bf-acc"] = get_hdr_nerfacto_config(use_crf=False, clip_before_accumulation=True)
 
 method_configs["nerfacto-big"] = TrainerConfig(
     method_name="nerfacto",

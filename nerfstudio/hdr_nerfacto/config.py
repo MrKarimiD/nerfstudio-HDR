@@ -10,11 +10,15 @@ from nerfstudio.lantern.datamanager import HDRNerfactoDataManagerConfig, HDRNerf
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 
 
-def get_hdr_nerfacto_config(*, use_crf=True):
+def get_hdr_nerfacto_config(*, use_crf=True, clip_before_accumulation=False):
     if use_crf:
         method_name = "hdr-nerfacto"
+        assert not clip_before_accumulation
     else:
-        method_name = "hdr-nerfacto-wo-crf"
+        if clip_before_accumulation:
+            method_name = "hdr-nerfacto-wo-crf-clip-bf-acc"
+        else:
+            method_name = "hdr-nerfacto-wo-crf"
     
     datamanager_config_class = HDRNerfactoDataManagerConfig if use_crf else HDRNerfactoWoCrfDataManagerConfig
         
@@ -37,6 +41,7 @@ def get_hdr_nerfacto_config(*, use_crf=True):
             model=HdrNerfactoModelConfig(
                 eval_num_rays_per_chunk=1 << 15,
                 use_crf=use_crf,
+                clip_before_accumulation=clip_before_accumulation,
             ),
         ),
         optimizers={

@@ -224,8 +224,8 @@ class RGBRenderer(nn.Module):
         rgb = self.combine_rgb(
             rgb, weights, background_color=background_color, ray_indices=ray_indices, num_rays=num_rays
         )
-        # if not self.training:
-        #     torch.clamp_(rgb, min=0.0, max=1.0)
+        if not self.training:
+            torch.clamp_(rgb, min=0.0, max=1.0)
         return rgb
 
 
