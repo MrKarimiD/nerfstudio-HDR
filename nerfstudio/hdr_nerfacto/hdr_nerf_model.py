@@ -142,6 +142,8 @@ class HdrNerfactoModelConfig(ModelConfig):
     unit_exposure_loss_mult: float = 0.5
     unit_exposure_expected_value: float = 0.5
 
+    use_crf: bool = True
+
 
 class HdrNerfactoModel(Model):
     """Nerfacto model
@@ -178,6 +180,7 @@ class HdrNerfactoModel(Model):
             use_average_appearance_embedding=self.config.use_average_appearance_embedding,
             appearance_embedding_dim=self.config.appearance_embed_dim,
             implementation=self.config.implementation,
+            use_crf=self.config.use_crf,
         )
 
         self.density_fns = []
@@ -301,24 +304,25 @@ class HdrNerfactoModel(Model):
         weights_list.append(weights)
         ray_samples_list.append(ray_samples)
 
-        rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
-        rgb_fast = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB_FAST], weights=weights)
-        depth = self.renderer_depth(weights=weights, ray_samples=ray_samples)
-        accumulation = self.renderer_accumulation(weights=weights)
-
         # HDR-Nerfacto
         rgb_hdr = self.renderer_rgb(
             rgb=field_outputs[FieldHeadNames.RGB_HDR], weights=weights
         )
 
+        depth = self.renderer_depth(weights=weights, ray_samples=ray_samples)
+        accumulation = self.renderer_accumulation(weights=weights)
+
         outputs = {
-            "rgb": rgb,
-            "rgb_fast": rgb_fast,
             "accumulation": accumulation,
             "depth": depth,
             "rgb_hdr": rgb_hdr,
-            "zero_radiance_crf": field_outputs[FieldHeadNames.ZERO_RADIANCE_CRF],
         }
+        if self.config.use_crf:
+            rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
+            rgb_fast = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB_FAST], weights=weights)
+            outputs["rgb"] = rgb
+            outputs["rgb_fast"] = rgb_fast
+            outputs['zero_radiance_crf'] = field_outputs[FieldHeadNames.ZERO_RADIANCE_CRF]
 
         if self.config.predict_normals:
             normals = self.renderer_normals(normals=field_outputs[FieldHeadNames.NORMALS], weights=weights)
@@ -350,7 +354,10 @@ class HdrNerfactoModel(Model):
         metrics_dict = {}
         gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb)  # Blend if RGBA
-        predicted_rgb = outputs["rgb"]
+        if self.config.use_crf:
+            predicted_rgb = outputs["rgb"]
+        else:
+            predicted_rgb = outputs["rgb_hdr"]
         metrics_dict["psnr"] = self.psnr(predicted_rgb, gt_rgb)
 
         if self.training:
@@ -361,17 +368,24 @@ class HdrNerfactoModel(Model):
         loss_dict = {}
         image = batch["image"].to(self.device)
         
-        pred_rgb, gt_rgb = self.renderer_rgb.blend_background_for_loss_computation(
-            pred_image=outputs["rgb"],
-            pred_accumulation=outputs["accumulation"],
-            gt_image=image,
-        )
-
-        loss_dict["unit_exposure_loss"] = self.config.unit_exposure_loss_mult * self.unit_exposure_loss(
-            outputs["zero_radiance_crf"], torch.ones_like(outputs["zero_radiance_crf"], requires_grad=False) * self.config.unit_exposure_expected_value
-        )
+        if self.config.use_crf:
+            pred_rgb, gt_rgb = self.renderer_rgb.blend_background_for_loss_computation(
+                pred_image=outputs["rgb"],
+                pred_accumulation=outputs["accumulation"],
+                gt_image=image,
+            )
+            loss_dict["unit_exposure_loss"] = self.config.unit_exposure_loss_mult * self.unit_exposure_loss(
+                outputs["zero_radiance_crf"], torch.ones_like(outputs["zero_radiance_crf"], requires_grad=False) * self.config.unit_exposure_expected_value
+            )
+        else:
+            pred_rgb, gt_rgb = self.renderer_rgb.blend_background_for_loss_computation(
+                pred_image=outputs["rgb_hdr"],
+                pred_accumulation=outputs["accumulation"],
+                gt_image=image,
+            )
 
         loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
+
         # TODO: check that
         # if self.training:
         #     loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
@@ -395,7 +409,10 @@ class HdrNerfactoModel(Model):
         self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         gt_rgb = batch["image"].to(self.device)
-        predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
+        if self.config.use_crf:
+            predicted_rgb = outputs["rgb"]
+        else:
+            predicted_rgb = outputs["rgb_hdr"]
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb)
         acc = colormaps.apply_colormap(outputs["accumulation"])
         depth = colormaps.apply_depth_colormap(

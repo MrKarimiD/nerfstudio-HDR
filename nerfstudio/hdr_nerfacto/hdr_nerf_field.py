@@ -96,6 +96,7 @@ class HdrNerfactoField(Field):
         use_average_appearance_embedding: bool = False,
         spatial_distortion: Optional[SpatialDistortion] = None,
         implementation: Literal["tcnn", "torch"] = "tcnn",
+        use_crf: bool = True,
     ) -> None:
         super().__init__()
 
@@ -200,17 +201,19 @@ class HdrNerfactoField(Field):
             implementation=implementation,
         )
 
-        # HDR NeRF, 1 MLP per channel
-        self.crf_mlps = nn.ModuleList([
-            MLP(in_dim=1,
-                num_layers=2,
-                layer_width=128,
-                out_dim=1,
-                activation=nn.ReLU(),
-                out_activation=nn.Sigmoid(),
-                implementation=implementation,
-            ) for _ in range(3)
-        ])
+        self.use_crf = use_crf
+        if use_crf:
+            # HDR NeRF, 1 MLP per channel
+            self.crf_mlps = nn.ModuleList([
+                MLP(in_dim=1,
+                    num_layers=2,
+                    layer_width=128,
+                    out_dim=1,
+                    activation=nn.ReLU(),
+                    out_activation=nn.Sigmoid(),
+                    implementation=implementation,
+                ) for _ in range(3)
+            ])
 
 
     def get_density(self, ray_samples: RaySamples) -> Tuple[Tensor, Tensor]:
@@ -316,29 +319,37 @@ class HdrNerfactoField(Field):
             dim=-1,
         )
         log_rgb_hdr = self.mlp_head(h) # .view(*outputs_shape, -1).to(directions)
-        rgb_hdr = torch.exp(log_rgb_hdr).view(*outputs_shape, -1).to(directions)
+        
         log_rgb_hdr_exposed = log_rgb_hdr + torch.log(exposures)
-        log_rgb_hdr_exposed_fast = log_rgb_hdr + torch.log(exposures * 0.004) # TODO: adaptive fast exposure
+        #print('exposure_min', exposures.min(), 'exposure_max', exposures.max())
+        # TODO: validate this
+        rgb_hdr = torch.exp(log_rgb_hdr_exposed).view(*outputs_shape, -1).to(directions)
+        #print('rgb_hdr_min', rgb_hdr.min(), 'rgb_hdr_max', rgb_hdr.max())
 
-        pred_rgb_fast = torch.cat([
-            self.crf_mlps[channel](log_rgb_hdr_exposed_fast[..., channel:channel+1]) for channel in range(3)
-        ], dim=-1).view(*outputs_shape, -1).to(directions)
+        # outputs[FieldHeadNames.RGB_HDR] = torch.clamp(rgb_hdr, 0, 1)
+        outputs[FieldHeadNames.RGB_HDR] = rgb_hdr
 
-        pred_rgb_ldr = torch.cat([
-            self.crf_mlps[channel](log_rgb_hdr_exposed[..., channel:channel+1]) for channel in range(3)
-        ], dim=-1)
-        pred_rgb_ldr = pred_rgb_ldr.view(*outputs_shape, -1).to(directions)
+        if self.use_crf:
+            log_rgb_hdr_exposed_fast = log_rgb_hdr + torch.log(exposures * 0.004) # TODO: adaptive fast exposure
+            pred_rgb_fast = torch.cat([
+                self.crf_mlps[channel](log_rgb_hdr_exposed_fast[..., channel:channel+1]) for channel in range(3)
+            ], dim=-1).view(*outputs_shape, -1).to(directions)
 
-        zero_radiance_crf = torch.cat([
-            self.crf_mlps[channel](torch.zeros((1, 1), requires_grad=False, device=log_rgb_hdr_exposed.device)) for channel in range(3)
-        ], dim=-1)
-        zero_radiance_crf = zero_radiance_crf.expand(pred_rgb_ldr.shape).to(directions)
+            pred_rgb_ldr = torch.cat([
+                self.crf_mlps[channel](log_rgb_hdr_exposed[..., channel:channel+1]) for channel in range(3)
+            ], dim=-1)
+            pred_rgb_ldr = pred_rgb_ldr.view(*outputs_shape, -1).to(directions)
 
-        outputs.update({
-            FieldHeadNames.RGB: pred_rgb_ldr,
-            FieldHeadNames.RGB_FAST: pred_rgb_fast,
-            FieldHeadNames.RGB_HDR: rgb_hdr,
-            FieldHeadNames.ZERO_RADIANCE_CRF: zero_radiance_crf,
-        })
+            zero_radiance_crf = torch.cat([
+                self.crf_mlps[channel](torch.zeros((1, 1), requires_grad=False, device=log_rgb_hdr_exposed.device)) for channel in range(3)
+            ], dim=-1)
+            zero_radiance_crf = zero_radiance_crf.expand(pred_rgb_ldr.shape).to(directions)
+
+            outputs.update({
+                FieldHeadNames.RGB: pred_rgb_ldr,
+                FieldHeadNames.RGB_FAST: pred_rgb_fast,
+                FieldHeadNames.ZERO_RADIANCE_CRF: zero_radiance_crf,
+            })
 
         return outputs
+    

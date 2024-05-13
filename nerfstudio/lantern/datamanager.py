@@ -9,7 +9,11 @@ from nerfstudio.data.datamanagers.base_datamanager import (
     VanillaDataManager,
     VanillaDataManagerConfig,
 )
-from nerfstudio.lantern.dataset import HDRInputDataset, HDRNerfactoInputDataset
+from nerfstudio.lantern.dataset import (
+    HDRInputDataset,
+    HDRNerfactoInputDataset,
+    HDRNerfactoWoCrfInputDataset,
+)
 
 
 @dataclass
@@ -17,6 +21,13 @@ class HDRNerfactoDataManagerConfig(VanillaDataManagerConfig):
     """A HDR data manager, based on VanillaDataManager"""
 
     _target: Type = field(default_factory=lambda: VanillaDataManager[HDRNerfactoInputDataset])
+    """Target class to instantiate."""
+    
+@dataclass
+class HDRNerfactoWoCrfDataManagerConfig(VanillaDataManagerConfig):
+    """A HDR data manager, based on VanillaDataManager"""
+
+    _target: Type = field(default_factory=lambda: VanillaDataManager[HDRNerfactoWoCrfInputDataset])
     """Target class to instantiate."""
     
 

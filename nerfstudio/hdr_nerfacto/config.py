@@ -6,19 +6,27 @@ from nerfstudio.engine.optimizers import AdamOptimizerConfig
 from nerfstudio.engine.schedulers import ExponentialDecaySchedulerConfig
 from nerfstudio.engine.trainer import TrainerConfig
 from nerfstudio.hdr_nerfacto.hdr_nerf_model import HdrNerfactoModelConfig
-from nerfstudio.lantern.datamanager import HDRNerfactoDataManagerConfig
+from nerfstudio.lantern.datamanager import HDRNerfactoDataManagerConfig, HDRNerfactoWoCrfDataManagerConfig
 from nerfstudio.pipelines.base_pipeline import VanillaPipelineConfig
 
 
-def get_hdr_nerfacto_config():
+def get_hdr_nerfacto_config(*, use_crf=True):
+    if use_crf:
+        method_name = "hdr-nerfacto"
+    else:
+        method_name = "hdr-nerfacto-wo-crf"
+    
+    datamanager_config_class = HDRNerfactoDataManagerConfig if use_crf else HDRNerfactoWoCrfDataManagerConfig
+        
     return TrainerConfig(
-        method_name="hdr-nerfacto",
+        method_name=method_name,
         steps_per_eval_batch=500,
         steps_per_save=2000,
+        # max_num_iterations=1000,
         max_num_iterations=30000,
         mixed_precision=True,
         pipeline=VanillaPipelineConfig(
-            datamanager=HDRNerfactoDataManagerConfig(
+            datamanager=datamanager_config_class(
                 dataparser=NerfstudioDataParserConfig(),
                 train_num_rays_per_batch=4096,
                 eval_num_rays_per_batch=4096,
@@ -27,7 +35,8 @@ def get_hdr_nerfacto_config():
                 ),
             ),
             model=HdrNerfactoModelConfig(
-                eval_num_rays_per_chunk=1 << 15
+                eval_num_rays_per_chunk=1 << 15,
+                use_crf=use_crf,
             ),
         ),
         optimizers={

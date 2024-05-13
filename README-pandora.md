@@ -115,7 +115,7 @@ After convergence, go to the next step.
 ns-train lantern-nerfacto --help
 ```
 
-If you need to use less frames, add this argument: `--pipeline.datamanager.train-num-images-to-sample-from 200 --pipeline.datamanager.eval-num-images-to-sample-from 30`
+If you need to use less frames, add this argument: `--pipeline.datamanager.train-num-images-to-sample-from 400 --pipeline.datamanager.eval-num-images-to-sample-from 30`
 
 > Thing to keep in mind: the way Nerfstudio splits train and test images may not be optimal: left might be in one dataset and right in another... that's a bit of a data leak.
 
@@ -135,5 +135,21 @@ TODO: validate this part
 ## 4. Evaluation
 
 ```
+ns-train hdr-nerfacto --data data/lab_downstairs_ns --pipeline.datamanager.train-num-images-to-sample-from 400 --pipeline.datamanager.eval-num-images-to-sample-from 30
+```
+
+```
 ns-eval --load-config outputs/LVSN_LAB_OpenSFM/hdr-nerfacto/2024-05-10_032723/config.yml --output-path ablations_out/hdr_nerfacto/output.json --render-output-path ablations_out/hdr-nerfacto
 ```
+
+```
+ns-render camera-path --load-config outputs/lab_downstairs_ns/hdr-nerfacto/2024-05-10_211317/config.yml --camera-path-filename data/lab_downstairs_ns/GT_transforms.json --output-path renders/lab_downstairs_ns/2024-05-10_211317/hdr-nerfacto --output-format images --image-format exr
+```
+
+```
+docker run -it --rm -v /gel/usr/$USER:/mnt/workspace/ -v /home-local2/$USER.extra.nobkp/:/mnt/data/ --gpus '"device=1"' -p 7007:7007 lantern_docker:latest /bin/bash
+export PYTHONPATH=$PYTHONPATH:$(pwd)
+```
+
+docker exec -it 57d2bf549c9a /bin/bash
+ns-train hdr-nerfacto --data data/lab_downstairs_ns/ --pipeline.datamanager.train-num-images-to-sample-from 1800 --viewer.websocket-port 9009

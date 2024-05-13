@@ -78,6 +78,7 @@ descriptions = {
     "nerfacto-HDR": "Nerfacto that take HDR as input, and output HDR field.",
     "lantern-nerfacto": "Nerfacto that take HDR as input, and output HDR field.",
     "hdr-nerfacto": "HDR-Nerfacto, adapted to the Nerfacto model.",
+    "hdr-nerfacto-wo-crf": "HDR-Nerfacto without CRF, adapted to the Nerfacto model.",	
     "depth-nerfacto": "Nerfacto with depth supervision.",
     "volinga": "Real-time rendering model from Volinga. Directly exportable to NVOL format at https://volinga.ai/",
     "instant-ngp": "Implementation of Instant-NGP. Recommended real-time model for unbounded scenes.",
@@ -128,7 +129,8 @@ method_configs["nerfacto"] = TrainerConfig(
 
 method_configs["lantern-nerfacto"] = Get_lantern_config()
 
-method_configs["hdr-nerfacto"] = get_hdr_nerfacto_config()
+method_configs["hdr-nerfacto"] = get_hdr_nerfacto_config(use_crf=True)
+method_configs["hdr-nerfacto-wo-crf"] = get_hdr_nerfacto_config(use_crf=False)
 
 method_configs["nerfacto-big"] = TrainerConfig(
     method_name="nerfacto",
