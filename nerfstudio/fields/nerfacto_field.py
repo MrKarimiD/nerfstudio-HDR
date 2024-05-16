@@ -252,8 +252,8 @@ class NerfactoField(Field):
         selector = ((positions > 0.0) & (positions < 1.0)).all(dim=-1)
         positions = positions * selector[..., None]
         self._sample_locations = positions
-        # if not self._sample_locations.requires_grad:
-        #     self._sample_locations.requires_grad = True
+        if not self._sample_locations.requires_grad:
+            self._sample_locations.requires_grad = True
         # import pdb; pdb.set_trace()
         positions_flat = positions.view(-1, 3)
         h = self.mlp_base(positions_flat).view(*ray_samples.frustums.shape, -1)

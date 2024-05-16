@@ -68,6 +68,7 @@ class LanternNerfactoField(NerfactoField):
         implementation: Literal["tcnn", "torch"] = "tcnn",
         use_appearance_embedding: bool = True,
         predicts_validity: bool = True,
+        second_step: bool = False,
     ) -> None:
         super().__init__(aabb, num_images, num_layers, hidden_dim,
                          geo_feat_dim, num_levels, base_res, 
@@ -124,7 +125,18 @@ class LanternNerfactoField(NerfactoField):
                 out_activation=nn.Sigmoid(),
                 implementation=implementation,
             )
+        self.second_step = second_step
 
+    
+    def get_density(self, ray_samples: RaySamples) -> Tuple[Tensor, Tensor]:
+        """Computes and returns the densities."""
+        if self.second_step:
+            with torch.no_grad():
+                density, base_mlp_out = super().get_density(ray_samples)
+        else:
+            density, base_mlp_out = super().get_density(ray_samples)
+        return density, base_mlp_out
+    
     
     def get_outputs(
         self, ray_samples: RaySamples, density_embedding: Optional[Tensor] = None

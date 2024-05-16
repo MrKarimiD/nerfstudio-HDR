@@ -97,6 +97,7 @@ class LanternModel(NerfactoModel):
             use_average_appearance_embedding=self.config.use_average_appearance_embedding,
             appearance_embedding_dim=self.config.appearance_embed_dim,
             implementation=self.config.implementation,
+            second_step=(self.config.lantern_steps == 2)
         )
 
         self.density_fns = []
@@ -234,7 +235,7 @@ class LanternModel(NerfactoModel):
         ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         gt_rgb = batch["image"].to(self.device)
         
-        if batch["exposure"] == 1.0:
+        if batch["exposure"] != 1.0:
             predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
         else:
             # if self.config.lantern_steps == 1:
@@ -256,6 +257,8 @@ class LanternModel(NerfactoModel):
         print("Exposure: ", batch['exposure'])
 
         combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
+        # print("combined_rgb: ", combined_rgb.shape, "gt_rgb: ", gt_rgb.shape, "predicted_rgb: ", predicted_rgb.shape)
+        combined_rgb = predicted_rgb # torch.cat([gt_rgb, predicted_rgb], dim=1)
         combined_acc = torch.cat([acc], dim=1)
         combined_depth = torch.cat([depth], dim=1)
 
@@ -280,6 +283,7 @@ class LanternModel(NerfactoModel):
         metrics_dict["lpips"] = float(lpips)
 
         images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
+        # images_dict = {"img": predicted_rgb, "accumulation": combined_acc, "depth": combined_depth}
 
         for i in range(self.config.num_proposal_iterations):
             key = f"prop_depth_{i}"

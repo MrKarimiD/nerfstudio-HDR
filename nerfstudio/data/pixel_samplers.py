@@ -267,7 +267,7 @@ class PixelSampler:
         chan, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
         chan, y, x = chan.cpu(), y.cpu(), x.cpu()
         collated_batch = {
-            key: value[chan, y, x] for key, value in batch.items() if key != "image_idx" and key != "exposure" and value is not None
+            key: value[chan, y, x] for key, value in batch.items() if key != "image_idx" and key != "exposure" and key != "image_filename" and value is not None
         }
 
         assert collated_batch["image"].shape[0] == num_rays_per_batch
@@ -375,7 +375,7 @@ class PixelSampler:
                 if not(self.well_image_batch and self.fast_image_batch):
                     well_ones = (image_batch["exposure"] == 1.0).cpu()
                     fast_ones = ~well_ones
-                    for key in image_batch.keys():
+                    for key in image_batch.keys() - ['image_filename']:
                         self.well_image_batch[key] = image_batch[key][well_ones]
                         self.fast_image_batch[key] = image_batch[key][fast_ones]
                 
@@ -392,14 +392,23 @@ class PixelSampler:
                         self.fast_image_batch, int(0.0 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True, only_light_sources=True
                     )
                 else:
+                    # well_pixel_batch = self.collate_image_dataset_batch(
+                    #     self.well_image_batch, int(0.2 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image
+                    # )
+                    # fast_pixel_batch = self.collate_image_dataset_batch(
+                    #     self.fast_image_batch, int(0.3 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True
+                    # )
+                    # light_pixel_batch = self.collate_image_dataset_batch(
+                    #     self.fast_image_batch, int(0.5 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True, only_light_sources=True
+                    # )
                     well_pixel_batch = self.collate_image_dataset_batch(
-                        self.well_image_batch, int(0.2 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image
+                        self.well_image_batch, int(0.0 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image
                     )
                     fast_pixel_batch = self.collate_image_dataset_batch(
                         self.fast_image_batch, int(0.3 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True
                     )
                     light_pixel_batch = self.collate_image_dataset_batch(
-                        self.fast_image_batch, int(0.5 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True, only_light_sources=True
+                        self.fast_image_batch, int(0.7 * self.num_rays_per_batch), keep_full_image=self.config.keep_full_image, is_fast_expo=True, only_light_sources=True
                     )
                 
                 pixel_batch = well_pixel_batch #.copy()
