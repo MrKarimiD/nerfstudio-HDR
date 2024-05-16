@@ -1,6 +1,9 @@
 # Ours
 Dual_Cameras
 gt_test
+renders*
+ablations*
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
