@@ -27,7 +27,7 @@ def get_hdr_nerfacto_config(*, use_crf=True, clip_before_accumulation=False):
         steps_per_eval_batch=500,
         steps_per_save=2000,
         # max_num_iterations=1000,
-        max_num_iterations=30000,
+        max_num_iterations=60000,
         mixed_precision=True,
         pipeline=VanillaPipelineConfig(
             datamanager=datamanager_config_class(
