@@ -29,6 +29,14 @@ def cut_weighting_function(pixels, exposures):
 
     return weights
 
+def lumminance_clip(pixels, exposures):
+    luminance = np.sum(pixels * np.array([0.2126, 0.7152, 0.0722])[None, None, :], axis=2, keepdims=True)
+    if exposures == WELL_EXPOSURE:
+        weights = luminance < WELL_EXPOSURE_CUTOFF
+    else:
+        weights = luminance > FAST_EXPOSURE_CUTOFF
+    return weights
+
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
@@ -88,13 +96,21 @@ if __name__ == "__main__":
         # well_mask = well_mask.astype(np.float32) / 255.0
         # well_mask[well_mask > 0.1] = 1.0
 
-        weights_well = cut_weighting_function(hdr_well_image, WELL_EXPOSURE)
-        weights_fast = cut_weighting_function(hdr_fast_image, FAST_EXPOSURE)
+        # weights_well = cut_weighting_function(hdr_well_image, WELL_EXPOSURE)
+        # weights_fast = cut_weighting_function(hdr_fast_image, FAST_EXPOSURE)
+        weights_well = lumminance_clip(hdr_well_image, WELL_EXPOSURE)
+        weights_fast = lumminance_clip(hdr_fast_image, FAST_EXPOSURE)
 
         # fast_mask = cv2.imread(well_mask_addr.replace('/well_mask/', '/fast_mask/'))
         # fast_mask = fast_mask.astype(np.float32) / 255.0
 
-        final_output = weights_well * (hdr_well_image / WELL_EXPOSURE) + weights_fast * (hdr_fast_image / FAST_EXPOSURE)
+        weights_missing = (weights_well == 0.0) & (weights_fast == 0.0)
+
+        INFILL_VALUE = np.sqrt(1.0 * FAST_EXPOSURE_CUTOFF/FAST_EXPOSURE)  # geometric mean between max value of well exposed (1.0) and min value of fast exposed (FAST_EXPOSURE_CUTOFF/FAST_EXPOSURE)
+
+        final_output = weights_well * (hdr_well_image / WELL_EXPOSURE) + weights_fast * (hdr_fast_image / FAST_EXPOSURE) + weights_missing * INFILL_VALUE
+
+        # final_output = weights_well * (hdr_well_image / WELL_EXPOSURE) + weights_fast * (hdr_fast_image / FAST_EXPOSURE)
         # final_output = weights_well * (hdr_well_image / WELL_EXPOSURE) + (hdr_fast_image / FAST_EXPOSURE)
         # final_output = weights_well * (hdr_well_image / WELL_EXPOSURE)
 
