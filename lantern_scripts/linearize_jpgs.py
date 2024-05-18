@@ -25,6 +25,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
     well_addr = args.data_dir
 
+    if not os.path.exists(args.out_dir):
+        os.makedirs(args.out_dir)
+
     with open(f'./linearize-ricoh-z10-wb-3500.json') as f:
         camera_data = json.load(f)
         CORRECTION_CURVE_TYPE = 'gamma'

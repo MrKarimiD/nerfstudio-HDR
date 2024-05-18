@@ -7,7 +7,7 @@ import argparse
 import json
 
 
-FAST_EXPOSURE_CUTOFF = 0.1 # good for real data (0.1 for synthetic)
+FAST_EXPOSURE_CUTOFF = 0.01 # good for real data (0.1 for synthetic)
 WELL_EXPOSURE_CUTOFF = 0.98 # good for real data (0.9 for synthetic)
 
 
@@ -35,11 +35,11 @@ os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--well_dir', type=str)
-    parser.add_argument('--fast_dir', type=str)
-    parser.add_argument('--out_dir', type=str)
+    parser.add_argument('--well_dir', type=str, default='/mnt/workspace/lantern/nerfstudio-HDR/well_at_fast/')
+    parser.add_argument('--fast_dir', type=str, default='/mnt/data/nerfstudio_ds/real_data/meeting_room_openSFM/meeting_room_ns/images/')
+    parser.add_argument('--out_dir', type=str, default='./output_well_at_fast/')
     parser.add_argument('--do_linearization', action='store_true')
-    parser.add_argument('--experiment_location', type=str, required=True)
+    parser.add_argument('--experiment_location', type=str, default='/mnt/data/nerfstudio_ds/real_data/meeting_room_openSFM')
     args = parser.parse_args()
 
     experiment_setup = args.experiment_location + '/capture_settings.json'
@@ -60,7 +60,7 @@ if __name__ == "__main__":
 
     well_images = []
     if args.do_linearization:
-        for path in Path(well_addr).rglob('*.jpg'):
+        for path in Path(well_addr).rglob('*-img.png'):
             well_images.append(path)
     else:
         for path in Path(well_addr).rglob('*.exr'):
@@ -70,8 +70,13 @@ if __name__ == "__main__":
 
         well_addr = str(well_addr)
 
+        print("well_addr: ", well_addr)
+
         hdr_well_image = cv2.imread(well_addr,  cv2.IMREAD_UNCHANGED)
-        hdr_fast_image = cv2.imread(well_addr.replace(args.well_dir, args.fast_dir), cv2.IMREAD_UNCHANGED)
+        fast_addr = well_addr.replace(args.well_dir, args.fast_dir)
+        fast_addr = fast_addr.replace("-img.png", ".png")
+        hdr_fast_image = cv2.imread(fast_addr, cv2.IMREAD_UNCHANGED)
+
 
 
         # hdr_well_image = np.uint8(hdr_well_image * 255.0)
@@ -95,12 +100,11 @@ if __name__ == "__main__":
         # fast_mask = fast_mask.astype(np.float32) / 255.0
 
         # final_output = weights_well * (hdr_well_image / WELL_EXPOSURE) + weights_fast * (hdr_fast_image / FAST_EXPOSURE)
-        # final_output = final_output / (weights_well+weights_well)
         final_output = weights_well * (hdr_well_image / WELL_EXPOSURE) + (hdr_fast_image / FAST_EXPOSURE)
         # final_output = weights_well * (hdr_well_image / WELL_EXPOSURE)
 
         output_addr = well_addr.replace(args.well_dir, args.out_dir)
         if args.do_linearization:
-            output_addr = output_addr.replace('jpg', '.exr')
+            output_addr = output_addr.replace('-img.png', '.exr')
         cv2.imwrite(output_addr, np.float32(final_output) )
         # import pdb; pdb.set_trace()

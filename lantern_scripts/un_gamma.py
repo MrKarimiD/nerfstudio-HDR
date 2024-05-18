@@ -17,6 +17,9 @@ if __name__ == "__main__":
     parser.add_argument('--out_dir', type=str, default='/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/Henry_Gagnon_red_and_blue/PanoHDR-NeRF/pano/')
     args = parser.parse_args()
 
+    if not os.path.exists(args.out_dir):
+        os.makedirs(args.out_dir)
+
     test_images = []
     for path in Path(args.data_dir).rglob('*.exr'):
         test_images.append(path)

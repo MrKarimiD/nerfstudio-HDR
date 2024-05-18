@@ -15,14 +15,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/linearization_then_nerf/fast_compressed_mu_law/')
     parser.add_argument('--out_dir', type=str, default='//Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/linearization_then_nerf/fast_expo/')
+    parser.add_argument('--is_jpg', action='store_true')
     args = parser.parse_args()
 
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
 
     test_images = []
-    for path in Path(args.data_dir).rglob('*.exr'):
-        test_images.append(path)
+    if args.is_jpg:
+        for path in Path(args.data_dir).rglob('*.jpg'):
+            test_images.append(path)
+    else:
+        for path in Path(args.data_dir).rglob('*.exr'):
+            test_images.append(path)
     
     for pano_addr in tqdm(test_images):
         pano_addr = str(pano_addr)
@@ -39,4 +44,7 @@ if __name__ == "__main__":
 
         data = np.float32(data)
         data = cv2.cvtColor(data, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(out_dir, data)
+        if args.is_jpg:
+            cv2.imwrite(out_dir, data*255)
+        else:
+            cv2.imwrite(out_dir, data)

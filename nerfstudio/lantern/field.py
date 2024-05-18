@@ -130,11 +130,11 @@ class LanternNerfactoField(NerfactoField):
     
     def get_density(self, ray_samples: RaySamples) -> Tuple[Tensor, Tensor]:
         """Computes and returns the densities."""
-        if self.second_step:
-            with torch.no_grad():
-                density, base_mlp_out = super().get_density(ray_samples)
-        else:
-            density, base_mlp_out = super().get_density(ray_samples)
+        # if self.second_step:
+        #     with torch.no_grad():
+        #         density, base_mlp_out = super().get_density(ray_samples)
+        # else:
+        density, base_mlp_out = super().get_density(ray_samples)
         return density, base_mlp_out
     
     
