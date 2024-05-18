@@ -61,6 +61,8 @@ class PixelSampler:
     config: PixelSamplerConfig
     states_of_mask: int=0
     masks_indices: torch.Tensor
+    is_well_exposed_computed: bool = False
+    well_exposed_indices: torch.Tensor
     def __init__(self, config: PixelSamplerConfig, **kwargs) -> None:
         self.kwargs = kwargs
         self.config = config
@@ -77,7 +79,40 @@ class PixelSampler:
             num_rays_per_batch: number of rays to sample per batch
         """
         self.num_rays_per_batch = num_rays_per_batch
+    
+    def sample_considering_mask(self, mask, device, batch_size):
+        num_masks = mask.shape[0]
+        indices = torch.tensor([]).cuda().to(device)
+        nonzero_indices_whole = torch.tensor([]).to(device)
+
+        if num_masks > 0:
+            size_of_disk = 50
+            num_disks = ceil(num_masks / size_of_disk)
+            # slice mask to 100 disk
+            random_idx_disk = int(torch.randint(0, num_disks, (1,)))
+            
+            for current_disk, start in enumerate(range(0, num_masks, size_of_disk)):
+                is_last_disk = ((start//size_of_disk) == num_disks-1)
+                end = start + size_of_disk if not is_last_disk else num_masks
+                current_masks = mask[start:end,...].to(device)
+                nonzero_indices = torch.nonzero(current_masks, as_tuple=False)
+                # Add offset to indices:local indices --> global
+                nonzero_indices[:,0] += start
+                
+                num_samples = batch_size // (num_disks-1) if current_disk != random_idx_disk \
+                                    else batch_size % (num_disks-1)
+                chosen_indices = torch.randint(0, nonzero_indices.shape[0], (num_samples,), device=device)
+                
+                indice_this_disk = nonzero_indices[chosen_indices]
+                indices = torch.cat((indices, indice_this_disk), dim=0).long()
+                nonzero_indices_whole = torch.cat((nonzero_indices_whole, nonzero_indices.cpu()), dim=0)
+                
+                del current_masks
+                del nonzero_indices
+                del indice_this_disk
         
+        return indices, nonzero_indices_whole
+    
     @profiler.time_function
     def sample_method(
         self,
@@ -97,49 +132,21 @@ class PixelSampler:
             mask: mask of possible pixels in an image to sample from.
         """
         # TODO Defining a flag for sampling even when there is a mask 
-        if isinstance(mask, torch.Tensor) and mask.shape[0] >= 4:
+        if isinstance(mask, torch.Tensor):
             # mask size: batch * h * w * 1
             # Init state, cache masks indices.
-            if self.states_of_mask == 0:    
-                with profiler.time_function("mask squeeze: whole"):
-                    mask = mask.squeeze(-1)
-                num_masks = mask.shape[0]
-                size_of_disk = 2
-                num_disks = ceil(num_masks / size_of_disk)
-                # slice mask to 100 disk
-                random_idx_disk = int(torch.randint(0, num_disks, (1,)))
-                indices = torch.tensor([]).to(device)
-                nonzero_indices_whole = torch.tensor([])
-                
-                for current_disk, start in enumerate(range(0, num_masks, size_of_disk)):
-                    is_last_disk = ((start//size_of_disk) == num_disks-1)
-                    end = start + size_of_disk if not is_last_disk else num_masks
-                    current_masks = mask[start:end,...].to(device)
-                    nonzero_indices = torch.nonzero(current_masks, as_tuple=False)
-                    # Add offset to indices:local indices --> global
-                    nonzero_indices[:,0] += start
-                    
-                    num_samples = batch_size // (num_disks-1) if current_disk != random_idx_disk \
-                                        else batch_size % (num_disks-1)
-                    chosen_indices = torch.randint(0, nonzero_indices.shape[0], (num_samples,), device=device)
-                    
-                    indice_this_disk = nonzero_indices[chosen_indices]
-                    indices = torch.cat((indices, indice_this_disk), dim=0).long()
-                    nonzero_indices_whole = torch.cat((nonzero_indices_whole, nonzero_indices.cpu()), dim=0).long()
+            with profiler.time_function("mask squeeze: whole"):
+                mask = mask.squeeze(-1)
 
-                    del current_masks
-                    del nonzero_indices
-                    del indice_this_disk
-                    
-                self.masks_indices = nonzero_indices_whole.cpu()
-                self.states_of_mask = 1
+            if self.is_well_exposed_computed:
+                chosen_indices = torch.randint(0, self.well_exposed_indices.shape[0], (batch_size,))
+                return self.well_exposed_indices[chosen_indices].to(device)
+            else:
+                indices, nonzero_indices_whole = self.sample_considering_mask(mask, device, batch_size)
+                self.well_exposed_indices = nonzero_indices_whole.long().cpu()
+                self.is_well_exposed_computed = True
                 return indices
-            
-            elif self.states_of_mask == 1:
-                chosen_indices = torch.randint(0, self.masks_indices.shape[0], (batch_size,))
-                return self.masks_indices[chosen_indices].to(device)
-            
-            
+        
         else:
             indices = torch.floor(
                 torch.rand((batch_size, 3), device=device)
@@ -210,22 +217,20 @@ class PixelSampler:
             else:
                 indices = self.sample_method(num_rays_per_batch, num_images, image_height, image_width, device=device)
 
-        c, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
-        c, y, x = c.cpu(), y.cpu(), x.cpu()
+        chan, y, x = (i.flatten() for i in torch.split(indices, 1, dim=-1))
+        chan, y, x = chan.cpu(), y.cpu(), x.cpu()
         collated_batch = {
-            key: value[c, y, x] for key, value in batch.items() if key != "image_idx" and key != "exposure" and key != "image_filename" and value is not None
+            key: value[chan, y, x] for key, value in batch.items() if key != "image_idx" and key != "exposure" and key != "image_filename" and value is not None
         }
-
-        for key, value in batch.items():
-            if key == "exposure":
-                collated_batch["exposure"] = value[c]
-
         
         assert collated_batch["image"].shape[0] == num_rays_per_batch
 
         # Needed to correct the random indices to their actual camera idx locations.
-        indices[:, 0] = batch["image_idx"][c]
-        collated_batch["indices"] = indices  # with the abs camera indices
+        collated_batch["indices"] = indices.clone()  # with the abs camera indices
+        collated_batch["indices"][:, 0] = batch["image_idx"][chan].clone()
+        
+        if "exposure" in batch:
+            collated_batch["exposure"] = batch["exposure"][chan]
 
         if keep_full_image:
             collated_batch["full_image"] = batch["image"]
@@ -369,7 +374,8 @@ class PatchPixelSampler(PixelSampler):
         if isinstance(mask, Tensor):
             sub_bs = batch_size // (self.config.patch_size**2)
             half_patch_size = int(self.config.patch_size / 2)
-            m = erode_mask(mask.permute(0, 3, 1, 2).float(), pixel_radius=half_patch_size)
+            # m = erode_mask(mask.permute(0, 3, 1, 2).float(), pixel_radius=half_patch_size)
+            m = mask.permute(0, 3, 1, 2).float()
             nonzero_indices = torch.nonzero(m[:, 0], as_tuple=False).to(device)
             chosen_indices = random.sample(range(len(nonzero_indices)), k=sub_bs)
             indices = nonzero_indices[chosen_indices]
@@ -448,7 +454,8 @@ class PairPixelSampler(PixelSampler):  # pylint: disable=too-few-public-methods
         device: Union[torch.device, str] = "cpu",
     ) -> Int[Tensor, "batch_size 3"]:
         if isinstance(mask, Tensor):
-            m = erode_mask(mask.permute(0, 3, 1, 2).float(), pixel_radius=self.radius)
+            # m = erode_mask(mask.permute(0, 3, 1, 2).float(), pixel_radius=self.radius)
+            m = mask.permute(0, 3, 1, 2).float() 
             nonzero_indices = torch.nonzero(m[:, 0], as_tuple=False).to(device)
             chosen_indices = random.sample(range(len(nonzero_indices)), k=self.rays_to_sample)
             indices = nonzero_indices[chosen_indices]
