@@ -215,6 +215,7 @@ def copy_images_list(
     verbose: bool = False,
     upscale_factor: Optional[int] = None,
     nearest_neighbor: bool = False,
+    use_folder_name: bool = False,
 ) -> List[Path]:
     """Copy all images in a list of Paths. Useful for filtering from a directory.
     Args:
@@ -241,11 +242,21 @@ def copy_images_list(
     for idx, image_path in enumerate(image_paths):
         if verbose:
             CONSOLE.log(f"Copying image {idx + 1} of {len(image_paths)}...")
-        copied_image_path = image_dir / f"frame_{idx + 1:05d}{image_path.suffix}"
+        # copied_image_path = image_dir / f"frame_{idx + 1:05d}{image_path.suffix}"
+        if use_folder_name:
+            if "left_e1" in str(image_path.parent):
+                copied_image_path = image_dir / Path('left_e1_' + str(image_path.name))
+            elif "right_e2" in str(image_path.parent):
+                copied_image_path = image_dir / Path('right_e2_' + str(image_path.name))
+            else:
+                assert("The folder name should be left_e1 or right_e2")
+        else:
+            copied_image_path = image_dir / image_path.name
         try:
             # if CR2 raw, we want to read raw and write TIFF, and change the file suffix for downstream processing
             if image_path.suffix.lower() in ALLOWED_RAW_EXTS:
-                copied_image_path = image_dir / f"frame_{idx + 1:05d}{RAW_CONVERTED_SUFFIX}"
+                # copied_image_path = image_dir / f"frame_{idx + 1:05d}{RAW_CONVERTED_SUFFIX}"
+                copied_image_path = image_dir / image_path.name
                 with rawpy.imread(str(image_path)) as raw:
                     rgb = raw.postprocess()
                 imageio.imsave(copied_image_path, rgb)
@@ -257,52 +268,53 @@ def copy_images_list(
         copied_image_paths.append(copied_image_path)
 
     nn_flag = "" if not nearest_neighbor else ":flags=neighbor"
-    downscale_chains = [f"[t{i}]scale=iw/{2**i}:ih/{2**i}{nn_flag}[out{i}]" for i in range(num_downscales + 1)]
-    downscale_dirs = [Path(str(image_dir) + (f"_{2**i}" if i > 0 else "")) for i in range(num_downscales + 1)]
-    downscale_paths = [
-        downscale_dirs[i] / ("frame_%05d" + copied_image_paths[0].suffix) for i in range(num_downscales + 1)
-    ]
+    if num_downscales > 0:
+        downscale_chains = [f"[t{i}]scale=iw/{2**i}:ih/{2**i}{nn_flag}[out{i}]" for i in range(num_downscales + 1)]
+        downscale_dirs = [Path(str(image_dir) + (f"_{2**i}" if i > 0 else "")) for i in range(num_downscales + 1)]
+        downscale_paths = [
+            downscale_dirs[i] / ("frame_%05d" + copied_image_paths[0].suffix) for i in range(num_downscales + 1)
+        ]
 
-    for dir in downscale_dirs:
-        dir.mkdir(parents=True, exist_ok=True)
+        for dir in downscale_dirs:
+            dir.mkdir(parents=True, exist_ok=True)
 
-    downscale_chain = (
-        f"split={num_downscales + 1}"
-        + "".join([f"[t{i}]" for i in range(num_downscales + 1)])
-        + ";"
-        + ";".join(downscale_chains)
-    )
+        downscale_chain = (
+            f"split={num_downscales + 1}"
+            + "".join([f"[t{i}]" for i in range(num_downscales + 1)])
+            + ";"
+            + ";".join(downscale_chains)
+        )
 
-    num_frames = len(image_paths)
-    ffmpeg_cmd = f'ffmpeg -y -noautorotate -i "{image_dir / f"frame_%05d{copied_image_paths[0].suffix}"}" -q:v 2 '
+        num_frames = len(image_paths)
+        ffmpeg_cmd = f'ffmpeg -y -noautorotate -i "{image_dir / f"frame_%05d{copied_image_paths[0].suffix}"}" -q:v 2 '
 
-    crop_cmd = ""
-    if crop_border_pixels is not None:
-        crop_cmd = f"crop=iw-{crop_border_pixels*2}:ih-{crop_border_pixels*2}[cropped];[cropped]"
-    elif crop_factor != (0.0, 0.0, 0.0, 0.0):
-        height = 1 - crop_factor[0] - crop_factor[1]
-        width = 1 - crop_factor[2] - crop_factor[3]
-        start_x = crop_factor[2]
-        start_y = crop_factor[0]
-        crop_cmd = f"crop=w=iw*{width}:h=ih*{height}:x=iw*{start_x}:y=ih*{start_y}[cropped];[cropped]"
+        crop_cmd = ""
+        if crop_border_pixels is not None:
+            crop_cmd = f"crop=iw-{crop_border_pixels*2}:ih-{crop_border_pixels*2}[cropped];[cropped]"
+        elif crop_factor != (0.0, 0.0, 0.0, 0.0):
+            height = 1 - crop_factor[0] - crop_factor[1]
+            width = 1 - crop_factor[2] - crop_factor[3]
+            start_x = crop_factor[2]
+            start_y = crop_factor[0]
+            crop_cmd = f"crop=w=iw*{width}:h=ih*{height}:x=iw*{start_x}:y=ih*{start_y}[cropped];[cropped]"
 
-    select_cmd = "[0:v]"
-    if upscale_factor is not None:
-        select_cmd = f"[0:v]scale=iw*{upscale_factor}:ih*{upscale_factor}:flags=neighbor[upscaled];[upscaled]"
+        select_cmd = "[0:v]"
+        if upscale_factor is not None:
+            select_cmd = f"[0:v]scale=iw*{upscale_factor}:ih*{upscale_factor}:flags=neighbor[upscaled];[upscaled]"
 
-    downscale_cmd = f' -filter_complex "{select_cmd}{crop_cmd}{downscale_chain}"' + "".join(
-        [f' -map "[out{i}]" "{downscale_paths[i]}"' for i in range(num_downscales + 1)]
-    )
+        downscale_cmd = f' -filter_complex "{select_cmd}{crop_cmd}{downscale_chain}"' + "".join(
+            [f' -map "[out{i}]" "{downscale_paths[i]}"' for i in range(num_downscales + 1)]
+        )
 
-    ffmpeg_cmd += downscale_cmd
-    if verbose:
-        CONSOLE.log(f"... {ffmpeg_cmd}")
-    run_command(ffmpeg_cmd, verbose=verbose)
+        ffmpeg_cmd += downscale_cmd
+        if verbose:
+            CONSOLE.log(f"... {ffmpeg_cmd}")
+        run_command(ffmpeg_cmd, verbose=verbose)
 
-    if num_frames == 0:
-        CONSOLE.log("[bold red]:skull: No usable images in the data folder.")
-    else:
-        CONSOLE.log("[bold green]:tada: Done copying images.")
+        if num_frames == 0:
+            CONSOLE.log("[bold red]:skull: No usable images in the data folder.")
+        else:
+            CONSOLE.log("[bold green]:tada: Done copying images.")
 
     return copied_image_paths
 
