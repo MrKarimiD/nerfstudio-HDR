@@ -373,6 +373,7 @@ class NerfactoModel(Model):
         )
 
         combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
+        # combined_rgb = predicted_rgb # for simple output without GT
         combined_acc = torch.cat([acc], dim=1)
         combined_depth = torch.cat([depth], dim=1)
 

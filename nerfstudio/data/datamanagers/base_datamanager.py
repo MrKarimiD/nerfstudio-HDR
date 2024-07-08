@@ -497,6 +497,7 @@ class VanillaDataManager(DataManager, Generic[TDataset]):
         """Sets up the data loader for evaluation"""
         assert self.eval_dataset is not None
         CONSOLE.print("Setting up evaluation dataset...")
+        # self.eval_dataset = self.train_dataset # for testing alignment issue
         self.eval_image_dataloader = CacheDataloader(
             self.eval_dataset,
             num_images_to_sample_from=self.config.eval_num_images_to_sample_from,

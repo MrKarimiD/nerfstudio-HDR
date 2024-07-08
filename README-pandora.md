@@ -1,5 +1,3 @@
-
-
 # How it works?
 
 ## 0. Setup
@@ -11,128 +9,123 @@ pip install skylibs equilib
 
 ## 1. Data acquisition & pre-processing
 
-### OPTION 1: Real data
-
 1. Acquire data using the apparatus (stick with two Ricoh cameras)
 
     Make sure the cameras point up to avoid having lights in the seam.
 
-    Do two recordings with both Ricoh Theta cameras. Use the flash of a flashlight both times, the falling edge will later be detected by a software.
+    Do two recordings with both Ricoh Theta cameras.
+
+    Camera setup:
+        Install Ricoh Theta app
+        Connect the camera to the app
+        Change camera parameters: select manual (bottom right)
+            First time: turn on "CT Settings" in Shooting settings
+            Apreture: 2.1
+            Shutter speed: determined below
+            ISO: 800
+            WB: 3500
+    
+    To connect the other camera:
+        Turn wifi off
+        Close the app
+        Turn wifi on
+        Open the app
+        Connect the other camera
 
     > Cameras:
     > 
     > **camera 1**: left, well-exposed, serial: YN14100695 \
     > **camera 3**: right, under-exposed, serial: YN14111000
 
-2. Take one video capture with the two cameras well-exposed.
+2. Take one video capture with the two cameras well-exposed. IMPORTANT: Note the shutter speed!!!
 
-    Use flash at the beginning (and at the end?) to use for synchronization.
+    Change shutter speed to get a well exposed image.
+    Clap at the beginning and at the end to use for synchronization.
 
 3. Take one video capture with Camera 1 (left) well-exposed and Camera 2 (right) fast-exposed.
-
-    Use flash at the beginning (and at the end?) to use for synchronization.
-
-4. Run the script for automatic flash detection / use Shotcut to manually align and trim the videos manually.
     
-    It will temporally align the frames from the left and right camera and remove the initial frames with the flash.
+    Change shutter speed of Camera 2 to 1/25000 (fastest exposure).
+    Clap at the beginning and at the end to use for synchronization.
 
-5. Extract frames using ffmpeg
+4. Import the files on computer
+
+    If on mac, use Ricoh Theta File Transfer for Mac
+
+5. Get the equirectangular videos by processing them with the Ricoh Theta computer app.
+
+    Drag and drop the video file into the app window.
+    Make sure both boxes are unchecked.
+    Name files as fallows
+    Camera 1:
+        First capture: left_sfm
+        Second capture: left_e1
+    Camera 2:
+        First capture: right_sfm
+        Second capture: right_e2
+
+6. Transfer videos on lab machine.
 
     ```
-    python lantern_scripts/mp4_videos_to_png_frames.py --help
-    python lantern_scripts/mp4_videos_to_png_frames.py --input_dir data/lab_downstairs/trimmed_videos
+    scp -r /path/to/source/file /path/to/destination/
     ```
 
-    It should output the following file structure
-    ```
-    left_colmap_baseline/
-        ....png
-        ....png
-        ....png
-    right_colmap_baseline/
-        ....png
-        ....png
-        ....png
-    left_e1/
-        ....png
-        ....png
-        ....png
-    right_e2/
-        ....png
-        ....png
-        ....png
-    ```
-    
-6. Run the code to mask out people and the stick.
+7. Process the videos for OpenSFM.
 
-    Make sure the masks in "./stick_masks" are valid
     ```
-    python lantern_scripts/mask_humans2.py --help
-    python lantern_scripts/mask_humans2.py --input_dir data/lab_downstairs/trimmed_videos --output_dir
+    python lantern_scripts/process_videos_for_sfm.py --input_dir /mnt/data/small_scene_window/ --shutter_speed 0.004
     ```
 
-
-### OPTION 2: Synthetic data
-
-``
-export PYTHONPATH=$pwd:$PYTHONPATH
-python lantern_scripts/split_synthetic_colmap.py --has_exposure --left_dir ./Dual_Cameras/left --right_dir ./Dual_Cameras/right --out_dir ./Dual_Cameras/split_colmap_out
-``
-
-## 2. Process data using COLMAP
-
-Example with synthetic data:
+## 2. Process data using OpenSFM
 
 ```
-export PYTHONPATH=$pwd:$PYTHONPATH
-ns-process-data lantern --data ./Dual_Cameras/split_colmap_subset --output-dir ./Dual_Cameras/split_colmap_subset/split_colmap_out5 --skip-image-processing  --camera-type equirectangular --images-per-equirect 8 
+bin/opensfm_run_all /mnt/data/scene/sfm/
 ```
 
-Example with real data (note that `--mask-dir` was added):
+## 2. Process data for NeRF
 
 ```
-export PYTHONPATH=$pwd:$PYTHONPATH
-ns-process-data lantern --data ./data/lab_downstairs/captured_data --mask-dir ./data/lab_downstairs/masks --output-dir ./data/lab_downstairs/colmap_out --skip-image-processing  --camera-type equirectangular --images-per-equirect 8
+ns-process-data lantern-openSFM  --data /mnt/data/small_scene/data/  --output-dir /mnt/data/small_scene/ns/ --metadata  /mnt/data/small_scene/sfm/reconstruction.json
 ```
 
-After that, you'll need to copy manually (for now), the folder to `images`, for nerf training.
+## 3. Train NeRF
 
-Examples
+1. Run step 1 of lantern-nerfacto.
+
+    ```
+    ns-train lantern-nerfacto --data /mnt/data/meeting_room_small_ns_no_exr/ --viewer.websocket-port 8008 --pipeline.datamanager.train-num-images-to-sample-from 1800 --pipeline.model.lantern_steps 1 --pipeline.datamanager.pixel-sampler.lantern_steps 1 --max-num-iterations 60000
+    ```
+
+2. Run step 2 of lantern-nerfacto.
+
+    ```
+    ns-train lantern-nerfacto --data /mnt/data/meeting_room_small_ns/ --viewer.websocket-port 8008 --pipeline.datamanager.train-num-images-to-sample-from 1800 --pipeline.model.lantern_steps 2 --pipeline.datamanager.pixel-sampler.lantern_steps 2 --load-dir /mnt/workspace/lantern/nerfstudio-HDR/outputs/meeting_room_small_ns/lantern-nerfacto/2024-06-10_155559/nerfstudio_models --pipeline.model.apply_mu_law False
+    ```
+
+## 4. View results
+
+Use the interface :
 ```
-ns-process-data lantern --data ./data/lab_ground_floor/trimmed_videos_smart_subset  --mask-dir ./data/lab_ground_floor/trimmed_videos_masks --output-dir ./data/lab_ground_floor/colmap_out_smart --skip-image-processing  --camera-type equirectangular --images-per
--equirect 8 --skip-colmap --skip-perspective-transform
-```
-
-## 2. Pre-training NeRF
-
-Using both the well-exposed and fast-exposed frames, as well as their associated camera poses, a NeRF will be trained to predict both the RGB and mask to do volumetric rendering.
-
-After convergence, go to the next step.
-
-```
-ns-train lantern-nerfacto --help
-```
-
-If you need to use less frames, add this argument: `--pipeline.datamanager.train-num-images-to-sample-from 200 --pipeline.datamanager.eval-num-images-to-sample-from 30`
-
-> Thing to keep in mind: the way Nerfstudio splits train and test images may not be optimal: left might be in one dataset and right in another... that's a bit of a data leak.
-
-Examples
-
-```
-ns-train lantern-nerfacto --data data/lab_ground_floor/colmap_out_smart --pipeline.datamanager.train-num-images-to-sample-from 200 --pipeline.datamanager.eval-num-images-to-sample-from 30
+ns-viewer --load-config outputs/tree_hill/nerfacto/2024-06-06_191338/config.yml --viewer.websocket-port 8008
 ```
 
-## 3. Running MomoNet
-
-(Using which frames?) A pretrained UNet image-to-image network called MomoNet will infill the missing dynamic range and store these predictions in new images.
-It will be trained on the Laval indoor HDR dataset to do this task.
-
-TODO: validate this part
-
-## 4. Train from scratch or fine-tune the NeRF model using MomoNet's predictions
-
-
-
+Render a video with the interface command:
+Move around and add cameras to manualy set a camera path.
 ```
+ns-render camera-path --load-config outputs/tree_hill/nerfacto/2024-06-06_191338/cclearonfig.yml --camera-path-filename /mnt/data/tree_hill/camera_paths/2024-06-06_191338.json --output-path renders/tree_hill/2024-06-06_191338.mp4
 ```
+
+Get evaluation images:
+```
+ns-eval --load-config=outputs/meeting_room_ns_no_exr/nerfacto/2024-06-17_152246/config.yml --output-path=output.json --render_output_path=/mnt/data/temp_folder_meeting_room_unaligned
+```
+
+To get evaluation images and tensorboard:
+```
+ns-eval --load-config=outputs/meeting_room_ns_no_exr/lantern-nerfacto/2024-06-20_142413/config.yml --output-path=output.json --render_output_path=/mnt/data/temp_folder_meeting_room_large_dataset_2  --vis viewer+tensorboard
+```
+
+Load tensorboard results:
+```
+tensorboard --logdir=Downloads/images_for_pts/test/runs/
+```
+And connect to http://localhost:6006/

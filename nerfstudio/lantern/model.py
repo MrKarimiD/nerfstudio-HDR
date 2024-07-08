@@ -235,11 +235,11 @@ class LanternModel(NerfactoModel):
         ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         gt_rgb = batch["image"].to(self.device)
         
-        if batch["exposure"] != 1.0:
+        if batch["exposure"] != 1.0: # change to == for testing fast-exposed
             predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
         else:
             # if self.config.lantern_steps == 1:
-            return None, None
+            return None, None # comment for testing fast-exposed
             predicted_rgb = outputs["rgb_fast"]  # Blended with background (black if random background)
             # if self.config.apply_mu_law:
             #     from nerfstudio.utils.colormaps import ColormapOptions, Colormaps

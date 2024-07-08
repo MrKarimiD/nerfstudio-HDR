@@ -30,14 +30,14 @@ if __name__ == '__main__':
                 "ffmpeg",
                 "-i", video,
                 "-vf", "fps=4.0",
-                f"{output_folder}/output_%04d.png"
+                f"{output_folder}/{video_name}_output_%04d.png"
             ]
         else:
             command = [
                 "ffmpeg",
                 "-i", video,
                 "-vf", "fps=15.0",
-                f"{output_folder}/output_%04d.png"
+                f"{output_folder}/{video_name}_output_%04d.png"
             ]
         subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -45,7 +45,7 @@ if __name__ == '__main__':
         for file in os.listdir(output_folder):
             if not file.endswith(".png"):
                 continue
-            frame_number = int(os.path.splitext(file)[0].split("_")[1])
+            frame_number = int(os.path.splitext(file)[0].split("_")[-1])
             if frame_number % 10 != 0:
                 os.remove(os.path.join(output_folder, file))
 
