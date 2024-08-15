@@ -55,7 +55,7 @@ def get_colmap_version(colmap_cmd: str, default_version=3.8) -> float:
     assert output is not None
     for line in output.split("\n"):
         if line.startswith("COLMAP"):
-            return float(line.split(" ")[1])
+            return float(line.split(" ")[1].split("-")[0])
     CONSOLE.print(f"[bold red]Could not find COLMAP version. Using default {default_version}")
     return default_version
 

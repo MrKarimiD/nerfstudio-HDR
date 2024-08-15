@@ -3,65 +3,67 @@
 ## 0. Setup
 
 ```
+git clone https://github.com/MrKarimiD/nerfstudio-HDR.git
+conda activate nerfstudio-HDR
 export PYTHONPATH=$pwd:$PYTHONPATH
-pip install skylibs equilib
+pip install -e .
+pip install skylibs equilib scikit-surgerycore pydub
+pip install -U git+https://github.com/luca-medeiros/lang-segment-anything.git
+```
+
+If there is an issue with equilib, do the following...
+```
+pip uninstall equilib
+cd ../equilib
+python setup.py develop
+cd ../nerfstudio-HDR
 ```
 
 ## 1. Data acquisition & pre-processing
 
-1. Acquire data using the apparatus (stick with two Ricoh cameras)
-
-    Make sure the cameras point up to avoid having lights in the seam.
-
-    Do two recordings with both Ricoh Theta cameras.
-
-    Camera setup:
-        Install Ricoh Theta app
-        Connect the camera to the app
-        Change camera parameters: select manual (bottom right)
-            First time: turn on "CT Settings" in Shooting settings
-            Apreture: 2.1
-            Shutter speed: determined below
-            ISO: 800
-            WB: 3500
-    
-    To connect the other camera:
-        Turn wifi off
-        Close the app
-        Turn wifi on
-        Open the app
-        Connect the other camera
-
+1. Setup the apparatus (stick with two Ricoh cameras)
     > Cameras:
-    > 
-    > **camera 1**: left, well-exposed, serial: YN14100695 \
-    > **camera 3**: right, under-exposed, serial: YN14111000
+    >
+    > **Camera 1**: left, well-exposed, serial: YN14100695 \
+    > **Camera 3**: right, fast-exposed (under-exposed), serial: YN14111000
 
-2. Take one video capture with the two cameras well-exposed. IMPORTANT: Note the shutter speed!!!
+    - To connect the other camera:
+        - Turn wifi off
+        - Close the app
+        - Turn wifi on
+        - Open the app
+        - Connect the other camera
+    - Camera setup:
+        - Install Ricoh Theta app
+        - Connect the camera to the app
+        - Change camera parameters: select manual (bottom right)
+            - First time: turn on "CT Settings" in Shooting settings
+            - Apreture: 2.1
+            - Shutter speed: determined below
+            - ISO: 800
+            - WB: 3500
+    -  Make sure the cameras point up to avoid having lights in the seam.
 
-    Change shutter speed to get a well exposed image.
-    Clap at the beginning and at the end to use for synchronization.
+2. First capture with well-exposed cameras.
+    - Change shutter speed to get a well exposed image. **Note the shutter speed.**
+    - Start the video on one camera. Connect to the other camera following the steps above and start the vidoe on the second camera.
+    - Clap at the beginning and at the end to use for synchronization.
+    - Go around the scene with the two cameras well-exposed.
 
-3. Take one video capture with Camera 1 (left) well-exposed and Camera 2 (right) fast-exposed.
-    
-    Change shutter speed of Camera 2 to 1/25000 (fastest exposure).
-    Clap at the beginning and at the end to use for synchronization.
+3. Second capture with Camera 1 (left) well-exposed and Camera 2 (right) fast-exposed. Change shutter speed of Camera 2 to 1/25000 (fastest exposure) and repeat the steps above 
 
-4. Import the files on computer
-
-    If on mac, use Ricoh Theta File Transfer for Mac
+4. Import the files on computer. If on a mac, use Ricoh Theta File Transfer for Mac
 
 5. Get the equirectangular videos by processing them with the Ricoh Theta computer app.
-
-    Drag and drop the video file into the app window.
-    Make sure both boxes are unchecked.
-    Name files as fallows
-    Camera 1:
-        First capture: left_sfm
-        Second capture: left_e1
-    Camera 2:
-        First capture: right_sfm
-        Second capture: right_e2
+    - Drag and drop the video file into the app window.
+    - Make sure both boxes are unchecked.
+    - Name files as fallows
+        - Camera 1:
+            - First capture: left_sfm
+            - Second capture: left_e1
+        - Camera 2:
+            - First capture: right_sfm
+            - Second capture: right_e2
 
 6. Transfer videos on lab machine.
 
@@ -69,10 +71,10 @@ pip install skylibs equilib
     scp -r /path/to/source/file /path/to/destination/
     ```
 
-7. Process the videos for OpenSFM.
+7. Process the videos for OpenSFM. Input the right shutter speed noted above.
 
     ```
-    python lantern_scripts/process_videos_for_sfm.py --input_dir /mnt/data/small_scene_window/ --shutter_speed 0.004
+    python lantern_scripts/process_videos_for_sfm.py --input_dir /mnt/data/scene/ --shutter_speed 0.004
     ```
 
 ## 2. Process data using OpenSFM
@@ -81,10 +83,21 @@ pip install skylibs equilib
 bin/opensfm_run_all /mnt/data/scene/sfm/
 ```
 
+To view results:
+```
+python3 viewer/server.py -d /mnt/data/scene/sfm/
+```
+Check that the camera positions make sense and that the number of clusters is low.
+
 ## 2. Process data for NeRF
 
 ```
-ns-process-data lantern-openSFM  --data /mnt/data/small_scene/data/  --output-dir /mnt/data/small_scene/ns/ --metadata  /mnt/data/small_scene/sfm/reconstruction.json
+ns-process-data lantern-openSFM  --data /mnt/data/scene/data/  --output-dir /mnt/data/scene/scene_ns/ --metadata  /mnt/data/scene/sfm/reconstruction.json
+```
+
+For processing existing dataset that used colmap for camera positions:
+```
+ns-process-data images --data /mnt/data/garden/images --output-dir /mnt/data/garden_processed --skip-colmap --skip-image-processing --colmap-model-path /mnt/data/garden/sparse/0
 ```
 
 ## 3. Train NeRF
@@ -92,40 +105,57 @@ ns-process-data lantern-openSFM  --data /mnt/data/small_scene/data/  --output-di
 1. Run step 1 of lantern-nerfacto.
 
     ```
-    ns-train lantern-nerfacto --data /mnt/data/meeting_room_small_ns_no_exr/ --viewer.websocket-port 8008 --pipeline.datamanager.train-num-images-to-sample-from 1800 --pipeline.model.lantern_steps 1 --pipeline.datamanager.pixel-sampler.lantern_steps 1 --max-num-iterations 60000
+    ns-train lantern-nerfacto --data /mnt/data/scene/scene_ns/ --viewer.websocket-port 8008 --pipeline.datamanager.train-num-images-to-sample-from 1800 --pipeline.model.lantern_steps 1 --pipeline.datamanager.pixel-sampler.lantern_steps 1 --max-num-iterations 60000
+    ```
+    For better alignment between the well and the fast exposed images:
+
+    1.1. Run the following command.
+    ```
+    python lantern_scripts/align_fast_to_eval.py --input_dir /mnt/data/scene/scene_ns/ --config outputs/scene_ns/lantern-nerfacto/2024-08-07_143013/config.yml
+    ```
+    1.2. Rerun step 1.
+    ```
+    ns-train lantern-nerfacto --data /mnt/data/scene/scene_ns/ --viewer.websocket-port 8008 --pipeline.datamanager.train-num-images-to-sample-from 1800 --pipeline.model.lantern_steps 1 --pipeline.datamanager.pixel-sampler.lantern_steps 1 --max-num-iterations 60000
     ```
 
 2. Run step 2 of lantern-nerfacto.
-
+    
     ```
-    ns-train lantern-nerfacto --data /mnt/data/meeting_room_small_ns/ --viewer.websocket-port 8008 --pipeline.datamanager.train-num-images-to-sample-from 1800 --pipeline.model.lantern_steps 2 --pipeline.datamanager.pixel-sampler.lantern_steps 2 --load-dir /mnt/workspace/lantern/nerfstudio-HDR/outputs/meeting_room_small_ns/lantern-nerfacto/2024-06-10_155559/nerfstudio_models --pipeline.model.apply_mu_law False
+    ns-train lantern-nerfacto --data /mnt/data/scene/scene_ns/ --viewer.websocket-port 8008 --pipeline.datamanager.train-num-images-to-sample-from 1800 --pipeline.model.lantern_steps 2 --pipeline.datamanager.pixel-sampler.lantern_steps 2 --load-dir /mnt/workspace/lantern/nerfstudio-HDR/outputs/scene_ns/lantern-nerfacto/2024-06-10_155559/nerfstudio_models --pipeline.model.apply_mu_law False
     ```
 
 ## 4. View results
 
-Use the interface :
+To use the interface:
 ```
-ns-viewer --load-config outputs/tree_hill/nerfacto/2024-06-06_191338/config.yml --viewer.websocket-port 8008
+ns-viewer --load-config outputs/scene_ns/lantern-nerfacto/2024-06-06_191338/config.yml --viewer.websocket-port 8008
+```
+- For the right side up:
+    - Go to SCENE sub-menu.
+    - Clic on RESET UP DIRECTION.
+- To render a video with the interface command: 
+    - Go to RENDER sub-menu.
+    - Clic on ADD CAMERA to manualy set camera view points.
+    - Clic on RENDER to get the command.
+    ```
+    ns-render camera-path --load-config outputs/scene_ns/lantern-nerfacto/2024-06-06_191338/config.yml --camera-path-filename /mnt/data/scene/scene_ns/camera_paths/2024-06-06_191338.json --output-path /mnt/data/scene/renders/2024-06-06_191338.mp4
+    ```
+    - To render a video fast-exposed: add --rendered-output-names rgb_fast
+        ```
+        ns-render camera-path --load-config outputs/scene_ns/lantern-nerfacto/2024-06-06_191338/config.yml --camera-path-filename /mnt/data/scene/scene_ns/camera_paths/2024-06-06_191338.json --output-path /mnt/data/scene/renders/2024-06-06_191338.mp4 --rendered-output-names rgb_fast
+        ```
+
+To get evaluation images:
+```
+ns-eval --load-config=outputs/scene_ns/lantern-nerfacto/2024-06-17_152246/config.yml --output-path=output.json --render_output_path=/mnt/data/scene/eval
 ```
 
-Render a video with the interface command:
-Move around and add cameras to manualy set a camera path.
-```
-ns-render camera-path --load-config outputs/tree_hill/nerfacto/2024-06-06_191338/cclearonfig.yml --camera-path-filename /mnt/data/tree_hill/camera_paths/2024-06-06_191338.json --output-path renders/tree_hill/2024-06-06_191338.mp4
-```
-
-Get evaluation images:
-```
-ns-eval --load-config=outputs/meeting_room_ns_no_exr/nerfacto/2024-06-17_152246/config.yml --output-path=output.json --render_output_path=/mnt/data/temp_folder_meeting_room_unaligned
-```
-
-To get evaluation images and tensorboard:
-```
-ns-eval --load-config=outputs/meeting_room_ns_no_exr/lantern-nerfacto/2024-06-20_142413/config.yml --output-path=output.json --render_output_path=/mnt/data/temp_folder_meeting_room_large_dataset_2  --vis viewer+tensorboard
-```
-
-Load tensorboard results:
-```
-tensorboard --logdir=Downloads/images_for_pts/test/runs/
-```
-And connect to http://localhost:6006/
+- To get evaluation images and tensorboard:
+    ```
+    ns-eval --load-config=outputs/scene_ns/lantern-nerfacto/2024-06-20_142413/config.yml --output-path=output.json --render_output_path=/mnt/data/scene/eval  --vis viewer+tensorboard
+    ```
+- To load tensorboard results:
+    ```
+    tensorboard --logdir=/path/to/file
+    ```
+    - Connect to http://localhost:6006/

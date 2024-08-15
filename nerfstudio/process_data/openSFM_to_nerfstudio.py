@@ -343,8 +343,8 @@ class OpenSFMToNeRFStudioDataset(BaseConverterToNerfstudioDataset):
                 frame['saturation_mask_path'] = frame['mask_path'].replace('.png', '_saturation_mask.png')
 
         # change frame file_path to linear exr
-        for frame in transform_data['frames']:
-            frame['file_path'] = frame['file_path'].replace('.png', '_linear.exr')
+        # for frame in transform_data['frames']:
+        #     frame['file_path'] = frame['file_path'].replace('.png', '_linear.exr')
 
         # for HDR-Nerfacto, output also the exposures
         exposures_content = {}

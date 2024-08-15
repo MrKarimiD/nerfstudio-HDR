@@ -597,8 +597,8 @@ def generate_planar_projections_from_equirectangular_GT(
                 for u_deg, v_deg in yaw_pitch_pairs:
                     v_rad = torch.pi * v_deg / 180.0
                     u_rad = torch.pi * u_deg / 180.0
-                    pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}, clip_output=clip_output)
-                    # pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad})
+                    # pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}, clip_output=clip_output)
+                    pers_image = equi2pers(im, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad})
                     if mask_dir is not None:
                         pers_mask = equi2pers(mask, rots={"roll": 0, "pitch": v_rad, "yaw": u_rad}) * 255.0
                     # transform matrix for blender: object.matrix_world 

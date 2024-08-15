@@ -30,14 +30,14 @@ if __name__ == '__main__':
                 "ffmpeg",
                 "-i", video,
                 "-vf", "fps=4.0",
-                f"{output_folder}/{video_name}_output_%04d.png"
+                f"{output_folder}/output_%04d.png"
             ]
         else:
             command = [
                 "ffmpeg",
                 "-i", video,
                 "-vf", "fps=15.0",
-                f"{output_folder}/{video_name}_output_%04d.png"
+                f"{output_folder}/output_%04d.png"
             ]
         subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
