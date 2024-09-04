@@ -3,6 +3,8 @@
 ## 0. Setup
 
 ```
+docker run -it --rm -v /gel/usr/{USER_NAME}:/mnt/workspace/ -v /home-local2/{USER_NAME}.extra.nobkp/:/mnt/data/ --gpus '"device=0"' -p 8008:8008 -p 6006:6006 lantern_docker:latest /bin/bash
+
 git clone https://github.com/MrKarimiD/nerfstudio-HDR.git
 conda activate nerfstudio-HDR
 export PYTHONPATH=$pwd:$PYTHONPATH
@@ -137,9 +139,9 @@ ns-viewer --load-config outputs/scene_ns/lantern-nerfacto/2024-06-06_191338/conf
     - Go to RENDER sub-menu.
     - Clic on ADD CAMERA to manualy set camera view points.
     - Clic on RENDER to get the command.
-    ```
-    ns-render camera-path --load-config outputs/scene_ns/lantern-nerfacto/2024-06-06_191338/config.yml --camera-path-filename /mnt/data/scene/scene_ns/camera_paths/2024-06-06_191338.json --output-path /mnt/data/scene/renders/2024-06-06_191338.mp4
-    ```
+        ```
+        ns-render camera-path --load-config outputs/scene_ns/lantern-nerfacto/2024-06-06_191338/config.yml --camera-path-filename /mnt/data/scene/scene_ns/camera_paths/2024-06-06_191338.json --output-path /mnt/data/scene/renders/2024-06-06_191338.mp4
+        ```
     - To render a video fast-exposed: add --rendered-output-names rgb_fast
         ```
         ns-render camera-path --load-config outputs/scene_ns/lantern-nerfacto/2024-06-06_191338/config.yml --camera-path-filename /mnt/data/scene/scene_ns/camera_paths/2024-06-06_191338.json --output-path /mnt/data/scene/renders/2024-06-06_191338.mp4 --rendered-output-names rgb_fast
