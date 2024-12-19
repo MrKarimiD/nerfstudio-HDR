@@ -5,6 +5,7 @@ import os
 import json
 import subprocess
 import argparse
+import shutil
 
 class ContourTooSmallException(Exception):
     pass
@@ -156,7 +157,8 @@ class AlignImages:
             H, mask = cv2.findHomography(fast_points, well_points, cv2.RANSAC, 5.0)
             warped_image = cv2.warpPerspective(self.fast_image.image, H, (self.image_width, self.image_height))
         else:
-            print("Not enough points for homography.")
+            # print("Not enough points for homography.")
+            pass
         return warped_image, H
 
 def save_transformation(json_path, right_filename, matrix):
@@ -180,116 +182,128 @@ def save_transformation(json_path, right_filename, matrix):
     with open(json_path, 'w') as f:
         json.dump(data, f, indent=4)
 
-def create_mask(matrix):
-    matrix = np.array(matrix, dtype=np.float32)
-    h, w = 960, 960
-    if np.all(matrix == 0):
-        return np.ones((h, w), dtype=np.bool_)
-    corners = np.array([[0, 0], [0, h-1], [w-1, h-1], [w-1, 0]], dtype=np.float32).reshape(-1, 1, 2)
-    transformed_corners = cv2.perspectiveTransform(corners, matrix)
-    mask = np.zeros((h, w), dtype=np.uint8)
-    cv2.fillConvexPoly(mask, np.int32(transformed_corners), 1)
-    return mask
+def create_fast_transforms_json(transforms_json_path, dataparser_transforms_path, fast_transforms_json_path):
+    with open(transforms_json_path, 'r') as f:
+        transforms = json.load(f)
+    number_of_frames = int(len(transforms['frames'])/2)
 
-def delete_unevaluated_images_from_json(transfoms_json_path, eval_images):
-    with open(transfoms_json_path, 'r') as json_file:
-        data = json.load(json_file)
+    with open(dataparser_transforms_path, 'r') as f:
+        dataset_transform = json.load(f)
+    scale_factor = dataset_transform['scale']
+    normalization_mat = np.eye(4)
+    normalization_mat[:3, :] = np.array(dataset_transform['transform'])
 
-    frames_to_keep = []
-    for frame in data.get('frames', []):
-        file_path = frame.get('file_path', '')
-        file_name = os.path.basename(file_path)
-        if file_name in eval_images:
-            frames_to_keep.append(frame)
-        elif 'left_e1' in file_name and file_name.replace('left_e1', 'right_e2') in eval_images:
-            frames_to_keep.append(frame)
-    data['frames'] = frames_to_keep
+    camera_dict = {}
+    camera_dict["fps"] = 1
+    camera_dict["camera_type"] = "perspective"
+    camera_dict["render_width"] = 960
+    camera_dict["render_height"] = 960
+    camera_dict["smoothness_value"] = 0
+    camera_dict["is_cycle"] = False
+    camera_dict["camera_path"] = []
 
-    with open(transfoms_json_path, 'w') as json_file:
-        json.dump(data, json_file, indent=4)
+    frame_length = 0
+    for i in range(number_of_frames, 2*number_of_frames):
+        C2W = transforms['frames'][i]['transform_matrix']
+        C2W = normalization_mat @ C2W 
+        C2W[:3, 3] *= scale_factor
+        camera_dict["camera_path"].append(
+        {
+            "camera_to_world": C2W.flatten().tolist(),
+            "fov": 120,
+            "aspect": 1,
+        })
+        frame_length += 1            
+    camera_dict["seconds"] = float(frame_length)
 
-def change_code_to_eval_all_images(all_images):
-    with open('nerfstudio/data/datamanagers/base_datamanager.py', 'r') as file:
-        content = file.readlines()
+    with open(fast_transforms_json_path, 'w') as f:
+        json.dump(camera_dict, f, indent=4)
 
-    new_content = []
-    for line in content:
-        if 'to eval all images' in line:
-            if all_images == True:
-                new_content.append(line.replace('# self.eval_dataset', 'self.eval_dataset'))
-            else:
-                new_content.append(line.replace('self.eval_dataset', '# self.eval_dataset'))
-        else:
-            new_content.append(line)
+def copy_images(src_folder, dest_folder):
+    os.makedirs(dest_folder, exist_ok=True)
 
-    with open('nerfstudio/data/datamanagers/base_datamanager.py', 'w') as file:
-        file.writelines(new_content)
+    files = os.listdir(src_folder)
+    for filename in files:
+        if filename.endswith(".png"):
+            src_file = os.path.join(src_folder, filename)
+            dest_file = os.path.join(dest_folder, filename)
+            shutil.copy(src_file, dest_file)
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--input_dir", type=str, default="/mnt/data/scene/scene_ns/", help="Nerfstudio directory of the scene")
     argparser.add_argument("--config", type=str, default="outputs/scene_ns/lantern-nerfacto/2024-06-20_142413/config.yml", help="Nerfstudio config file")
-    argparser.add_argument("--no_eval", action='store_false', default="True", help="Doesn't run eval if flag is present")
-    argparser.add_argument("--no_copy", action='store_false', default="True", help="Doesn't copy the original data if flag is present. Use if already copied.")
+    argparser.add_argument("--no_render", action='store_true', default="False", help="Doesn't render images for alignment if flag is present")
+    argparser.add_argument("--no_copy", action='store_true', default="Flase", help="Doesn't copy the original data if flag is present. Use if already copied.")
     args = argparser.parse_args()
 
-    if args.no_eval:
-        print("Running eval...")
-        change_code_to_eval_all_images(True)
-        subprocess.run(["ns-eval", "--load-config=" + args.config, "--output-path=output.json",  "--render_output_path=" + args.input_dir + "eval_for_alignment"])
-        change_code_to_eval_all_images(False)
-
-    eval_path = os.path.join(args.input_dir, 'eval_for_alignment')
     json_path = os.path.join(args.input_dir, 'alignment_matrices.json')
     transfoms_json_path = os.path.join(args.input_dir, 'transforms.json')
+    fast_transforms_json_path = os.path.join(args.input_dir, 'fast_transforms.json')
+    dataparser_transforms_path = args.config.replace('config.yml', 'dataparser_transforms.json')
+    rendered_for_alignment_path = os.path.join(args.input_dir, 'rendered_for_alignment')
     images_path_aligned = os.path.join(args.input_dir, 'images')
     images_path_unaligned = images_path_aligned + '_unaligned'
     masks_path_aligned = os.path.join(args.input_dir, 'masks')
     masks_path_unaligned = masks_path_aligned + '_unaligned'
     merged_images = os.path.join(images_path_aligned, 'merged')
-    
-    if args.no_copy:
+
+    if not args.no_render:
+        print("Rendering images for alignment...")
+        create_fast_transforms_json(transfoms_json_path, dataparser_transforms_path, fast_transforms_json_path)
+        subprocess.run(["ns-render", "camera-path", "--load-config=" + args.config, "--camera-path-filename=" + fast_transforms_json_path, "--output-path=" + rendered_for_alignment_path,  "--output-format=images", "--image-format=png"])
+
+    if not args.no_copy:
         print("Copying data...")
-        subprocess.run(["cp", "-r", images_path_aligned, images_path_unaligned])
-        os.makedirs(merged_images, exist_ok=True)
-        subprocess.run(["cp", "-r", masks_path_aligned, masks_path_unaligned])
-        subprocess.run(["cp", "-r", transfoms_json_path, os.path.join(args.input_dir, 'transforms_unaligned.json')])
+        subprocess.run(["mv", images_path_aligned, images_path_unaligned])
+        copy_images(images_path_unaligned, images_path_aligned)
+        subprocess.run(["mv", masks_path_aligned, masks_path_unaligned])
+        copy_images(masks_path_unaligned, masks_path_aligned)
     os.makedirs(merged_images, exist_ok=True)
 
     print("Aligning images...")
-    eval_images = []
-    for right_name in os.listdir(images_path_unaligned):
-        if right_name.startswith("right") and right_name.endswith(".png"):
-            left_eval_image_path = os.path.join(eval_path, right_name.replace('.png', '-img.png'))
-            if os.path.exists(left_eval_image_path):
-                eval_images.append(right_name)
-                left_image = cv2.cvtColor(cv2.imread(left_eval_image_path), cv2.COLOR_BGR2RGB)
-                right_path = os.path.join(images_path_unaligned, right_name)
-                right_image = cv2.cvtColor(cv2.imread(right_path), cv2.COLOR_BGR2RGB)
+    for i, right_name in enumerate(f for f in os.listdir(images_path_unaligned) if f.startswith("right") and f.endswith(".png")):
+        left_rendered_image_path = os.path.join(rendered_for_alignment_path, f"{i + 1:05}.png")
+        left_image = cv2.cvtColor(cv2.imread(left_rendered_image_path), cv2.COLOR_BGR2RGB)
+        right_path = os.path.join(images_path_unaligned, right_name)
+        right_image = cv2.cvtColor(cv2.imread(right_path), cv2.COLOR_BGR2RGB)
 
-                try:
-                    align_images = AlignImages(left_image, right_image)
-                    warped_image, matrix = align_images.alignImages()
-                    print(f"Aligned: {right_name}")
-                except Exception as e:
-                    warped_image = right_image
-                    matrix = np.zeros((3, 3))
-                    print(f"Failed to align: {right_name}")
+        try:
+            align_images = AlignImages(left_image, right_image)
+            warped_image, matrix = align_images.alignImages()
+            print(f"Aligned: {right_name}")
 
-                cv2.imwrite(os.path.join(images_path_aligned, right_name), cv2.cvtColor(warped_image, cv2.COLOR_RGB2BGR))
-                save_transformation(json_path, right_name, matrix)
+        except Exception as e:
+            warped_image = right_image
+            matrix = np.zeros((3, 3))
+            print(f"Failed to align: {right_name}")
 
-                mask = create_mask(matrix)
-                mask_path = os.path.join(masks_path_unaligned, right_name)
-                previous_mask = cv2.cvtColor(cv2.imread(mask_path), cv2.COLOR_BGR2GRAY)
-                merged_masks = (1 - np.logical_or(1 - mask.astype(np.bool_), 1 - previous_mask.astype(np.bool_))).astype(np.uint8) * 255
-                cv2.imwrite(os.path.join(masks_path_aligned, right_name), merged_masks)
+        cv2.imwrite(os.path.join(images_path_aligned, right_name), cv2.cvtColor(warped_image, cv2.COLOR_RGB2BGR))
+        save_transformation(json_path, right_name, matrix)
 
-                alpha = 50.0/100.0
-                merged_image = cv2.addWeighted(left_image, 1.0-alpha, warped_image, alpha, 0)
-                merged_masked_image = cv2.bitwise_or(merged_image, merged_image, mask=merged_masks)
-                merged_path = os.path.join(merged_images, right_name + '.merged.png')
-                cv2.imwrite(merged_path, cv2.cvtColor(merged_masked_image, cv2.COLOR_RGB2BGR))
-    
-    print("Modifying json...")
-    delete_unevaluated_images_from_json(transfoms_json_path, eval_images)
+        # Masks
+        previous_mask_path = os.path.join(masks_path_unaligned, right_name)
+        previous_mask = cv2.cvtColor(cv2.imread(previous_mask_path), cv2.COLOR_BGR2GRAY)
+        warped_previous_mask = cv2.warpPerspective(previous_mask, matrix, (previous_mask.shape[1], previous_mask.shape[0]),
+                                flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        cv2.imwrite(os.path.join(masks_path_aligned, right_name), warped_previous_mask)
+
+        previous_saturation_mask_path = previous_mask_path.replace(".png", "_saturation_mask.png")
+        previous_saturation_mask = cv2.cvtColor(cv2.imread(previous_saturation_mask_path), cv2.COLOR_BGR2GRAY)
+        warped_saturation_masks = cv2.warpPerspective(previous_saturation_mask, matrix, (previous_saturation_mask.shape[1], previous_saturation_mask.shape[0]),
+                                    flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        cv2.imwrite(os.path.join(masks_path_aligned, right_name.replace(".png", "_saturation_mask.png")), warped_saturation_masks)
+
+        # Merged images
+        alpha = 50.0/100.0
+        merged_before_image = cv2.addWeighted(left_image, 1.0-alpha, right_image, alpha, 0)
+        merged_before_masked_image = cv2.bitwise_or(merged_before_image, merged_before_image, mask=previous_mask)
+        merged_before_path = os.path.join(merged_images, right_name).replace(".png", "_before.png")
+        cv2.imwrite(merged_before_path, cv2.cvtColor(merged_before_masked_image, cv2.COLOR_RGB2BGR))
+
+        merged_after_image = cv2.addWeighted(left_image, 1.0-alpha, warped_image, alpha, 0)
+        merged_after_masked_image = cv2.bitwise_or(merged_after_image, merged_after_image, mask=warped_previous_mask)
+        merged_after_path = os.path.join(merged_images, right_name).replace(".png", "_after.png")
+        cv2.imwrite(merged_after_path, cv2.cvtColor(merged_after_masked_image, cv2.COLOR_RGB2BGR))
+
+    print("All done :D")

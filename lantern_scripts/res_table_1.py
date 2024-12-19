@@ -85,19 +85,19 @@ def remove_nan_and_sort(x):
     return x
 
 
-results_dataset_roots = [
-                        '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/LDR-Nerfacto/render/',
-                        '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/linearization_then_nerf/render/',
-                        '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/nerf_then_linearization/render/',
+results_dataset_roots = [ "/mnt/data/metrics/renders/lab_downstairs_lin_renders/"
+                        # '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/LDR-Nerfacto/render/',
+                        # '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/linearization_then_nerf/render/',
+                        # '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/nerf_then_linearization/render/',
                         # '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/HDR-Nerfacto/render/',
                         # '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/PanoHDR-NeRF/render/'
                         ]
 # results_dataset_roots = '/home/karimida/evaluation/final_results/Henrique_data/my_renderings_of_Henrique_2'
 
-dataset_names = [
-                'LDR_nerfacto',
-                'linearization_then_NeRF',
-                'NeRF_then_linearization',
+dataset_names = [ "lab_downstairs_lin"
+                # 'LDR_nerfacto',
+                # 'linearization_then_NeRF',
+                # 'NeRF_then_linearization',
                 # 'HDR-Nerfacto',
                 # 'PanoHDRNeRF'
                 ]
@@ -116,12 +116,14 @@ for key in dataset_names:
 # gt_dataset_root = '/home/karimida/evaluation/redoing_table_one/hdr_env_maps/gt_render_diffuse/'
 
 # Ground truth for the outdoor
-gt_dataset_root = '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/GT/render/'
-output_folder = '/Users/momo/Desktop'
+# gt_dataset_root = '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/GT/render/'
+gt_dataset_root = '/mnt/data/metrics/GT_lab_downstairs/render/'
+# output_folder = '/Users/momo/Desktop'
+output_folder = '/mnt/data/metrics/lab_downstairs/res_table/'
 
 gt_dataset_files = sorted([os.path.join(gt_dataset_root, f) for f in os.listdir(gt_dataset_root) if f.endswith('.exr')])
 
-mask_dataset_root = '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/GT/render_mask/'
+mask_dataset_root = '/mnt/data/metrics/GT_lab_downstairs/render_mask/'
 
 # create output folder output_folder, 'metrics'
 os.system('mkdir -p ' + output_folder + '/metrics')

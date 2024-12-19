@@ -51,12 +51,14 @@ if __name__ == "__main__":
         gt_addr = str(gt_addr)
         gt_image = cv2.imread(gt_addr, cv2.IMREAD_UNCHANGED)
         gt_image[gt_image < 0] = 0.0
+        gt_image = cv2.resize(gt_image, (512, 256), interpolation = cv2.INTER_LINEAR)
         gt_image = np.clip(np.power(gt_image, 1/2.2), 0.0, 1.0)
         pred_addr = gt_addr.replace(args.gt_dir, args.data_dir)
         # if args.is_exr:
             # pred_addr = pred_addr.replace('.png', '.exr')
         pred_image = cv2.imread(pred_addr,  cv2.IMREAD_UNCHANGED)
         pred_image = np.clip(np.power(pred_image, 1/2.2), 0.0, 1.0)
+        pred_image = cv2.resize(pred_image, (512, 256), interpolation = cv2.INTER_LINEAR)
         
         cv2.imwrite('./test.png', (pred_image*255).astype('uint8'))
         cv2.imwrite('./gt.png', (gt_image*255).astype('uint8'))
@@ -77,5 +79,5 @@ if __name__ == "__main__":
     
     print("SSIM: ", ssim_index)
     print("PSNR: ", psnr_index)
-    # lpips_index = piq.LPIPS(reduction='none')(torch.stack(gts), torch.stack(preds))
-    # print("LPIPS: ", lpips_index)
+    lpips_index = piq.LPIPS(reduction='none')(torch.stack(gts), torch.stack(preds))
+    print("LPIPS: ", torch.mean(lpips_index))
