@@ -81,3 +81,16 @@ if __name__ == "__main__":
     print("PSNR: ", psnr_index)
     lpips_index = piq.LPIPS(reduction='none')(torch.stack(gts), torch.stack(preds))
     print("LPIPS: ", torch.mean(lpips_index))
+
+    results = {
+    "SSIM": str(ssim_index),
+    "PSNR": str(psnr_index),
+    "LPIPS": str(torch.mean(lpips_index))
+    }
+
+    output_path = os.path.join(args.data_dir, "ldr_results.json")
+    
+    with open(output_path, 'w') as f:
+        json.dump(results, f, indent=4)
+
+    print(f"Saved metrics to: {output_path}")

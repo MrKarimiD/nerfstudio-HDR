@@ -6,6 +6,7 @@ from math import log10
 import json
 import cv2
 import imageio
+import argparse
 
 
 def wrmse(gt, est, mask):
@@ -84,104 +85,79 @@ def remove_nan_and_sort(x):
     x = np.sort(x)
     return x
 
+def calculate_metrics(results_dataset_roots, gt_dataset_root, output_folder, dataset_names):
+    results_dataset_roots = [results_dataset_roots]
+    dataset_names = [dataset_names]
+    mse = {}
+    si_mse = {}
+    angular = {}
+    psnr_error = {}
+    for key in dataset_names:
+        mse[key] = []
+        si_mse[key] = []
+        angular[key] = []
+        psnr_error[key] = []
 
-results_dataset_roots = [ "/mnt/data/metrics/renders/lab_downstairs_lin_renders/"
-                        # '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/LDR-Nerfacto/render/',
-                        # '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/linearization_then_nerf/render/',
-                        # '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/nerf_then_linearization/render/',
-                        # '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/HDR-Nerfacto/render/',
-                        # '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/PanoHDR-NeRF/render/'
-                        ]
-# results_dataset_roots = '/home/karimida/evaluation/final_results/Henrique_data/my_renderings_of_Henrique_2'
+    gt_dataset_files = sorted([os.path.join(gt_dataset_root, f) for f in os.listdir(gt_dataset_root) if f.endswith('.exr')])
 
-dataset_names = [ "lab_downstairs_lin"
-                # 'LDR_nerfacto',
-                # 'linearization_then_NeRF',
-                # 'NeRF_then_linearization',
-                # 'HDR-Nerfacto',
-                # 'PanoHDRNeRF'
-                ]
+    # create output folder output_folder, 'metrics'
+    os.system('mkdir -p ' + output_folder)
 
-mse = {}
-si_mse = {}
-angular = {}
-psnr_error = {}
-for key in dataset_names:
-    mse[key] = []
-    si_mse[key] = []
-    angular[key] = []
-    psnr_error[key] = []
-
-# Ground truth for the indoor
-# gt_dataset_root = '/home/karimida/evaluation/redoing_table_one/hdr_env_maps/gt_render_diffuse/'
-
-# Ground truth for the outdoor
-# gt_dataset_root = '/Users/momo/Desktop/Pandora-HDR_NeRF/final_results/meeting_room/GT/render/'
-gt_dataset_root = '/mnt/data/metrics/GT_lab_downstairs/render/'
-# output_folder = '/Users/momo/Desktop'
-output_folder = '/mnt/data/metrics/lab_downstairs/res_table/'
-
-gt_dataset_files = sorted([os.path.join(gt_dataset_root, f) for f in os.listdir(gt_dataset_root) if f.endswith('.exr')])
-
-mask_dataset_root = '/mnt/data/metrics/GT_lab_downstairs/render_mask/'
-
-# create output folder output_folder, 'metrics'
-os.system('mkdir -p ' + output_folder + '/metrics')
-
-for results_dataset_root, dataset_name in zip(results_dataset_roots, dataset_names):
-    
-    for gt_dataset_file in tqdm(gt_dataset_files):
-        gt_dataset_img_exr = imread(gt_dataset_file)[:, :, :3].astype(np.float32)
-    
-        result_dataset_file = gt_dataset_file.replace(gt_dataset_root, results_dataset_root)
-        result_dataset_img_exr = imread(result_dataset_file)[:, :, :3].astype(np.float32)
-
-        mask_file = gt_dataset_file.replace(gt_dataset_root, mask_dataset_root)
-        mask_file = mask_file.replace('.exr', '.png')
-        mask = np.float32(imageio.imread(mask_file)) / 255.0
-        mask = mask == 1
-        mask = np.repeat(mask[:, :, np.newaxis], 3, axis=2)
-        gt_dataset_img_exr_for_PSNR = gt_dataset_img_exr[mask]
-        result_dataset_img_exr_for_PSNR = result_dataset_img_exr[mask]
+    for results_dataset_root, dataset_name in zip(results_dataset_roots, dataset_names):
         
-        mse_result = wrmse(gt_dataset_img_exr, result_dataset_img_exr, mask) 
-        scale_invariant_mse_result = si_wrmse(gt_dataset_img_exr, result_dataset_img_exr, mask)
-        angular_result = angular_error(gt_dataset_img_exr, result_dataset_img_exr, mask)
-        psnr_result = psnr(gt_dataset_img_exr_for_PSNR, result_dataset_img_exr_for_PSNR)
-        mse[dataset_name].append(mse_result)
-        si_mse[dataset_name].append(scale_invariant_mse_result)
-        angular[dataset_name].append(angular_result)
-        psnr_error[dataset_name].append(psnr_result)
-        si_mse[dataset_name].append(scale_invariant_mse_result)
+        for gt_dataset_file in tqdm(gt_dataset_files):
+            gt_dataset_img_exr = imread(gt_dataset_file)[:, :, :3].astype(np.float32)
+        
+            result_dataset_file = gt_dataset_file.replace(gt_dataset_root, results_dataset_root)
+            result_dataset_img_exr = imread(result_dataset_file)[:, :, :3].astype(np.float32)
 
+            mask = np.float32(imageio.imread('lantern_scripts/render_mask.png')) / 255.0
+            mask = mask == 1
+            mask = np.repeat(mask[:, :, np.newaxis], 3, axis=2)
+            gt_dataset_img_exr_for_PSNR = gt_dataset_img_exr[mask]
+            result_dataset_img_exr_for_PSNR = result_dataset_img_exr[mask]
+            
+            mse_result = wrmse(gt_dataset_img_exr, result_dataset_img_exr, mask) 
+            scale_invariant_mse_result = si_wrmse(gt_dataset_img_exr, result_dataset_img_exr, mask)
+            angular_result = angular_error(gt_dataset_img_exr, result_dataset_img_exr, mask)
+            psnr_result = psnr(gt_dataset_img_exr_for_PSNR, result_dataset_img_exr_for_PSNR)
+            mse[dataset_name].append(mse_result)
+            si_mse[dataset_name].append(scale_invariant_mse_result)
+            angular[dataset_name].append(angular_result)
+            psnr_error[dataset_name].append(psnr_result)
+            si_mse[dataset_name].append(scale_invariant_mse_result)
 
+        mse[dataset_name] = remove_nan_and_sort(mse[dataset_name]) 
 
-    # mse = {key: remove_nan_and_sort(mse[key]) for key in mse}
-    mse[dataset_name] = remove_nan_and_sort(mse[dataset_name]) 
+        mse_ours = np.mean(mse[dataset_name])
+        si_mse_ours = np.mean(si_mse[dataset_name])
+        angular_ours = np.mean(angular[dataset_name])
+        psnr_ours = np.mean(psnr_error[dataset_name])
 
-    # mse_ours = np.percentile(mse[dataset_name], q=50)
-    # si_mse_ours = np.percentile(si_mse[dataset_name], q=50)
-    # angular_ours = np.percentile(angular[dataset_name], q=50)
-    # psnr_ours = np.percentile(psnr_error[dataset_name], q=50)
+        # print(dataset_name + ', si_RMSE: {}'.format(si_mse_ours))
+        # print(dataset_name + ', RMSE: {}'.format(mse_ours))
+        # print(dataset_name + ', angular: {}'.format(angular_ours))
+        # print(dataset_name + ', PSNR: {}'.format(psnr_ours))
 
-    mse_ours = np.mean(mse[dataset_name])
-    si_mse_ours = np.mean(si_mse[dataset_name])
-    angular_ours = np.mean(angular[dataset_name])
-    psnr_ours = np.mean(psnr_error[dataset_name])
+        output_dict = {}
+        output_dict['model_name'] = dataset_name
+        output_dict['si_RMSE'] = str(si_mse_ours)
+        output_dict['RMSE'] = str(mse_ours)
+        output_dict['angular'] = str(angular_ours)
+        output_dict['PSNR'] = str(psnr_ours)
 
-    # print(dataset_name + ', si_RMSE: {}'.format(si_mse_ours))
-    # print(dataset_name + ', RMSE: {}'.format(mse_ours))
-    # print(dataset_name + ', angular: {}'.format(angular_ours))
-    # print(dataset_name + ', PSNR: {}'.format(psnr_ours))
+        output_addr = output_folder + 'render_results.json'
 
-    output_dict = {}
-    output_dict['model_name'] = dataset_name
-    output_dict['si_RMSE'] = str(si_mse_ours)
-    output_dict['RMSE'] = str(mse_ours)
-    output_dict['angular'] = str(angular_ours)
-    output_dict['PSNR'] = str(psnr_ours)
+        with open(output_addr, 'w') as f:
+            json.dump(output_dict, f, indent=4)
 
-    output_addr = output_folder + '/metrics/' + dataset_name + '_results.json'
-    # print("output_addr: ", output_addr)
-    with open(output_addr, 'w') as f:
-        json.dump(output_dict, f, indent=4)
+if __name__ == '__main__':
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument("--results_dataset_roots", type=str, default="/mnt/data/coffee_room2/metrics/renders/unaligned_lin_renders/")
+    argparser.add_argument("--gt_dataset_root", type=str, default="/mnt/data/coffee_room2/GT/GT_exr_renders/")
+    argparser.add_argument("--output_folder", type=str, default="/mnt/data/coffee_room2/metrics/results_table/")
+    argparser.add_argument("--dataset_names", type=str, default="/mnt/data/coffee_room2/metrics/results_table/")
+    
+    args = argparser.parse_args()
+
+    calculate_metrics(args.results_dataset_roots, args.gt_dataset_root, args.output_folder, args.dataset_names)

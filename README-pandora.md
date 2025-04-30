@@ -4,15 +4,23 @@
 
 ```
 tmux new -s nerf_studio
+
 docker run -it --rm -v /gel/usr/{USER_NAME}:/mnt/workspace/ -v /home-local2/{USER_NAME}.extra.nobkp/:/mnt/data/ --gpus '"device=0"' -p 8008:8008 -p 6006:6006 lantern_docker:latest /bin/bash
+
 cd /mnt/workspace/lantern/nerfstudio-HDR
 
 git clone https://github.com/MrKarimiD/nerfstudio-HDR.git
 conda activate nerfstudio-HDR
 export PYTHONPATH=$pwd:$PYTHONPATH
 pip install -e .
-pip install skylibs equilib scikit-surgerycore pydub
+pip install scikit-surgerycore pydub skylibs piq OpenEXR Imath equilib
+
 pip install -U git+https://github.com/luca-medeiros/lang-segment-anything.git
+If lang-sam not installed, do the following...
+```
+cd ../lang-segment-anything
+pip install .
+cd ../nerfstudio-HDR
 ```
 
 If there is an issue with equilib, do the following...
@@ -46,7 +54,8 @@ cd ../nerfstudio-HDR
             - Shutter speed: determined below
             - ISO: 800
             - WB: 3500
-    -  Make sure the cameras point up to avoid having lights in the seam.
+    - Make sure the cameras point up to avoid having lights in the seam.
+    - Make sure to film up and down to get good coverage
 
 2. First capture with well-exposed cameras.
     - Change shutter speed to get a well-exposed image. **Note the shutter speed.**
@@ -54,7 +63,19 @@ cd ../nerfstudio-HDR
     - Clap at the beginning and at the end to use for synchronization.
     - Go around the scene with the two cameras well-exposed.
 
-3. Second capture with Camera 1 (left) well-exposed and Camera 2 (right) fast-exposed. Change shutter speed of Camera 2 to 1/25000 (fastest exposure) and repeat the steps above 
+3. Second capture with Camera 1 (left) well-exposed and Camera 2 (right) fast-exposed. Change shutter speed of Camera 2 to 1/25000 (fastest exposure) and repeat the steps above
+
+    If calculating **METRICS**: Capture GT HDR brakets
+    - Go to settings and change the camera mode shooting method to multiple brackets
+    - Set the camera parameters:
+        - Apreture: 2.1
+        - Shutter speed: Calculate the 11 shutter speeds and select the closest ones on the app in order from smallest to hightes
+            ```
+            python lantern_scripts/calculate_exposures.py --min 0.00004 --max 0.004
+            ```
+        - ISO: 800
+        - WB: 3500
+    - Take 10 different locations
 
 4. Import the files on computer. If on a mac, use Ricoh Theta File Transfer for Mac
 
@@ -65,11 +86,21 @@ cd ../nerfstudio-HDR
         - Camera 1:
             - First capture: left_sfm
             - Second capture: left_e1
-        - Camera 2:
+        - Camera 2 (fast exposed):
             - First capture: right_sfm
             - Second capture: right_e2
 
-6. Transfer videos on lab machine.
+    If calculating **METRICS**: Group GT brackets under GT folder like so
+        GT/
+            GT1/
+                001.jpg
+                002.jpg
+                ...
+            GT2/
+                ...
+            ...
+
+6. Transfer files on lab machine.
 
     ```
     scp -r /path/to/source/file /path/to/destination/
@@ -77,9 +108,19 @@ cd ../nerfstudio-HDR
 
 7. Process the videos for OpenSFM. Input the right shutter speed noted above.
 
+    If not calculating metrics:
     ```
     python lantern_scripts/process_videos_for_sfm.py --input_dir /mnt/data/scene/ --shutter_speed 0.004
     ```
+
+    If calculating **METRICS**:
+    ```
+    python lantern_scripts/process_videos_for_sfm.py --input_dir /mnt/data/scene/ --shutter_speed 0.004 --gt
+    ```
+    - Resize GT_exr and GT_jpg images to 3840x1920 with GNU Image Manipulation Program
+        - Go to Image > Scale Image
+        - Transfer those back on lab machine in th GT folder of the scene naming them GT_jpg_small and GT_exr_small
+    - Add GT_jpg images into sfm/images/ with their appropriate mask (checkout stick_masks folder)
 
 ## 2. Process data using OpenSFM
 
@@ -167,34 +208,45 @@ ns-eval --load-config=outputs/scene_ns/lantern-nerfacto/2024-06-17_152246/config
 
 ## 4. Calculate metrics
 
+```
+python lantern_scripts/calculate_metrics.py --input_dir /mnt/data/coffee_room2/ --checkpoint /mnt/workspace/lantern/nerfstudio-HDR/outputs/coffee_room2_ns/lantern-nerfacto/2025-01-22_194346/ --metric_name unaligned
+```
+
+and point #8
+
+or
+
 1. Get ground truth transformations:
     ```
-    ns-process-data lantern-GT-HDR --data /mnt/data/lab_downstairs_ns/ --output-dir /mnt/data/metrics/lab_downstairs --metadata /mnt/data/lab_downstairs_ns/reconstruction.json --checkpoint /mnt/workspace/lantern/nerfstudio-HDR/outputs/lab_downstairs_ns/lantern-nerfacto/2024-10-06_232947/
+    ns-process-data lantern-GT-HDR --data /mnt/data/coffee_room2/coffee_room2_ns/ --output-dir /mnt/data/coffee_room2/metrics --metadata /mnt/data/coffee_room2/sfm/reconstruction.json --checkpoint /mnt/workspace/lantern/nerfstudio-HDR/outputs/coffee_room2_ns/lantern-nerfacto/2025-01-22_194346/
     ```
 
 2. Render panos at ground truth positions for well and fast exposed:
     ```
-    ns-render camera-path --load-config /mnt/workspace/lantern/nerfstudio-HDR/outputs/lab_downstairs_ns/lantern-nerfacto/2024-10-06_232947/config.yml --camera-path-filename /mnt/data/metrics/lab_downstairs/GT_transforms.json --output-path /mnt/data/metrics/renders/lab_downstairs_aligned --output-format images --rendered_output_names
+    ns-render camera-path --load-config /mnt/workspace/lantern/nerfstudio-HDR/outputs/coffee_room2_ns/lantern-nerfacto/2025-01-22_194346/config.yml --camera-path-filename /mnt/data/coffee_room2/metrics/GT_transforms.json --output-path /mnt/data/coffee_room2/metrics/renders/unaligned --output-format images
     ```
     ```
-    ns-render camera-path --load-config /mnt/workspace/lantern/nerfstudio-HDR/outputs/lab_downstairs_ns/lantern-nerfacto/2024-10-06_232947/config.yml --camera-path-filename /mnt/data/metrics/lab_downstairs/GT_transforms.json --output-path /mnt/data/metrics/renders/lab_downstairs_aligned_fast --output-format images --rendered_output_names rgb_fast
+    ns-render camera-path --load-config /mnt/workspace/lantern/nerfstudio-HDR/outputs/coffee_room2_ns/lantern-nerfacto/2025-01-22_194346/config.yml --camera-path-filename /mnt/data/coffee_room2/metrics/GT_transforms.json --output-path /mnt/data/coffee_room2/metrics/renders/unaligned_fast --output-format images --rendered_output_names rgb_fast
     ```
 
 3. Combine both well and fast exposed panos:
     ```
-    python lantern_scripts/combine.py --well_dir /mnt/data/metrics/renders/lab_downstairs_aligned/ --fast_dir /mnt/data/metrics/renders/lab_downstairs_aligned_fast/ --out_dir /mnt/data/metrics/renders/lab_downstairs_lin/ --experiment_location /mnt/data/lab_downstairs_ns/ --do_linearization
+    python lantern_scripts/combine.py --well_dir /mnt/data/coffee_room2/metrics/renders/unaligned/ --fast_dir /mnt/data/coffee_room2/metrics/renders/unaligned_fast/ --out_dir /mnt/data/coffee_room2/metrics/renders/unaligned_lin/ --experiment_location /mnt/data/coffee_room2/data/ --do_linearization
     ```
 
 4. Make sure the panos from renders have the same names as the GT panos.
 
 5. Calculate PSNR, SSIM and LPIPS:
     ```
-    python lantern_scripts/ldr_res.py --gt_dir /mnt/data/metrics/GT_lab_downstairs/pano/  --data_dir /mnt/data/metrics/renders/lab_downstairs_lin/
+    python lantern_scripts/ldr_res.py --gt_dir /mnt/data/coffee_room2/GT/GT_exr/  --data_dir /mnt/data/coffee_room2/metrics/renders/unaligned_lin/
     ```
 
-5. Generate HDR renders with blender:
+5. Generate GT and results renders with blender:
     ```
-    blender --background /mnt/data/metrics/scene_new.blend -P lantern_scripts/hdr_blender.py -- /mnt/data/metrics/renders/lab_downstairs_lin_less/ /mnt/data/metrics/renders/lab_downstairs_lin_renders/
+    blender --background lantern_scripts/scene_new.blend -P lantern_scripts/hdr_blender.py -- /mnt/data/coffee_room2/GT/GT_exr/ /mnt/data/coffee_room2/GT/GT_exr_renders/
+    ```
+    ```
+    blender --background lantern_scripts/scene_new.blend -P lantern_scripts/hdr_blender.py -- /mnt/data/coffee_room2/metrics/renders/unaligned_lin/ /mnt/data/coffee_room2/metrics/renders/unaligned_lin_renders/
     ```
 
 6. Calculate si-RMSE, RMSE, RGB ang. and PSNR (LDR r.). Need to change values in code:

@@ -125,6 +125,20 @@ class AlignImages:
             iterations += 1
         return list(zip(self.matched_well_contours, self.fast_contours))
 
+    def match_contours_simplified(self): #something to try out
+        for contour_index, fast_contour in enumerate(self.fast_contours):
+            for threshold_index, _ in enumerate(self.well_thresholds):
+                for well_contour in self.well_images[threshold_index].contours:
+                    try:
+                        well_contour = Contour(well_contour, threshold_index)
+                        score = fast_contour.get_matching_score(well_contour)
+                        if score < fast_contour.score and score <= 200:
+                                fast_contour.match_contour(well_contour, score)
+                                self.matched_well_contours[contour_index] = well_contour
+                    except ContourTooSmallException as e:
+                        continue
+        return list(zip(self.matched_well_contours, self.fast_contours))
+
     def get_point_descriptors(self, points, image):
         sift = cv2.SIFT_create()
         keypoints = [cv2.KeyPoint(x=float(p[0]), y=float(p[1]), size=20) for p in points]
@@ -233,8 +247,8 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--input_dir", type=str, default="/mnt/data/scene/scene_ns/", help="Nerfstudio directory of the scene")
     argparser.add_argument("--config", type=str, default="outputs/scene_ns/lantern-nerfacto/2024-06-20_142413/config.yml", help="Nerfstudio config file")
-    argparser.add_argument("--no_render", action='store_true', default="False", help="Doesn't render images for alignment if flag is present")
-    argparser.add_argument("--no_copy", action='store_true', default="Flase", help="Doesn't copy the original data if flag is present. Use if already copied.")
+    argparser.add_argument("--no_render", action='store_true', default=False, help="Doesn't render images for alignment if flag is present")
+    argparser.add_argument("--no_copy", action='store_true', default=False, help="Doesn't copy the original data if flag is present. Use if already copied.")
     args = argparser.parse_args()
 
     json_path = os.path.join(args.input_dir, 'alignment_matrices.json')
