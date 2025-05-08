@@ -18,6 +18,7 @@ pip install scikit-surgerycore pydub skylibs piq OpenEXR Imath equilib
 pip install -U git+https://github.com/luca-medeiros/lang-segment-anything.git
 If lang-sam not installed, do the following...
 ```
+```
 cd ../lang-segment-anything
 pip install .
 cd ../nerfstudio-HDR
