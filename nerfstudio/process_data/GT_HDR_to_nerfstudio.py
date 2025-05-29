@@ -107,20 +107,17 @@ class GTHDRoNeRFStudioDataset(BaseConverterToNerfstudioDataset):
         scale_factor = dataset_transform['scale']
         normalization_mat = np.eye(4)
         normalization_mat[:3, :] = np.array(dataset_transform['transform'])
-        
+
         # Convert OpenSFM coordinates to the NeRFStudio
         camera_dict = {}
         camera_dict["fps"] = 1
-        camera_key = 'v2 unknown unknown -1 -1 perspective 0'
-        # camera_key = 'v2 unknown unknown 3840 1920 perspective 0.0'
-        # camera_key = 'v2 unknown unknown 6720 3360 perspective 0.0'
         camera_dict["camera_type"] = "equirectangular"
-        camera_dict["render_width"] = openSFM_reconstruction[0]["cameras"][camera_key]['width']
-        camera_dict["render_height"] = openSFM_reconstruction[0]["cameras"][camera_key]['height']
+        camera_dict["render_width"] = 3840
+        camera_dict["render_height"] = 1920
         camera_dict["smoothness_value"] = 0
         camera_dict["is_cycle"] = False
         camera_dict["camera_path"] = []
-        
+
         frame_length = 0
         for idx, fname in enumerate([x for x in frames_names if x.startswith('GT')]):
             print(fname)

@@ -14,6 +14,8 @@ from PIL import Image
 
 # import some common detectron2 utilities
 from tqdm import tqdm
+from envmap import EnvironmentMap, rotation_matrix
+
 
 FRAME_SUBFOLDERS_CONFIG = [
     {
@@ -74,16 +76,29 @@ if __name__ == '__main__':
             original_image_pil = Image.open(os.path.join(args.input_dir, folder['name'], file)).convert("RGB")
             original_image_np = np.array(original_image_pil)
 
+            original_image = EnvironmentMap(os.path.join(args.input_dir, folder['name'], file), 'latlong')
+            dcm = rotation_matrix(azimuth=0, elevation=0, roll=np.pi/2)
+            original_image.rotate(dcm)
+            image_np_rot = (original_image.data * 255).astype(np.uint8)
+
             if folder['mask_person']:
                 text_prompt = "person"
                 # 90 degrees rotat
-                image_np_rot = np.rot90(original_image_np, k=folder['flip_k'])
+                # image_np_rot = original_image_np # np.rot90(original_image_np, k=folder['flip_k'])
                 masks, boxes, phrases, logits = model.predict(Image.fromarray(image_np_rot), text_prompt)
                 masks = masks.detach().cpu().numpy()
-                masks = np.rot90(masks, k=-folder['flip_k'], axes=(1, 2))
-                
-                # aggregate masks
-                masks = np.max(masks, axis=0)
+                if masks.size != 0:
+                    # masks = np.rot90(masks, k=-folder['flip_k'], axes=(1, 2))
+                    
+                    mask_skylibs = EnvironmentMap(np.transpose(masks, (1, 2, 0)).astype(np.uint8), 'latlong')  
+                    inv_dcm = rotation_matrix(azimuth=0, elevation=0, roll=-np.pi/2)
+                    mask_skylibs.rotate(inv_dcm)
+                    masks = mask_skylibs.data
+                    masks = np.transpose(masks, (2, 0, 1))
+                    # aggregate masks
+                    masks = np.max(masks, axis=0)
+                else:
+                    masks = np.zeros((original_image_pil.height, original_image_pil.width))
 
             else:
                 masks = np.zeros((original_image_pil.height, original_image_pil.width))
