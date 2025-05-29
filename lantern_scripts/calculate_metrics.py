@@ -85,8 +85,7 @@ if __name__ == '__main__':
         old_path = os.path.join(renders_lin, old_path)
         shutil.move(old_path, new_path)
         print(f"Renamed {os.path.basename(old_path)} to {new_filename}")
-
-
+    
     print("Step 4b: Verifying filename consistency between GT and renders...")
     try:
         gt_files = set(f for f in os.listdir(gt_exr) if f.endswith('.exr'))
@@ -157,4 +156,39 @@ if __name__ == '__main__':
         "python", "lantern_scripts/exr2hdr.py",
         "--hdr_dir", gt_exr,
         "--output_dir", gt_hdr
+    ], check=True)
+
+    # 9. Convert EXR panos to LDR format:
+    print("Converting EXR panos to LDR visualization...")
+    subprocess.run([
+        "python", "lantern_scripts/tonemap.py",
+        "--data_dir", renders_lin,
+        "--out_dir", renders_lin
+    ], check=True)
+    subprocess.run([
+        "python", "lantern_scripts/tonemap.py",
+        "--data_dir", gt_exr,
+        "--out_dir", gt_exr
+    ], check=True)
+    subprocess.run([
+        "python", "lantern_scripts/tonemap.py",
+        "--data_dir", lin_renders,
+        "--out_dir", lin_renders
+    ], check=True)
+    subprocess.run([
+        "python", "lantern_scripts/tonemap.py",
+        "--data_dir", gt_exr_renders,
+        "--out_dir", gt_exr_renders
+    ], check=True)
+
+     # 9. Convert EXR panos to LDR format:
+    print("Preparing the HTML visualization...")
+    subprocess.run([
+        "python", "lantern_scripts/results_visualization.py",
+        "--gt_dir", gt_exr,
+        "--gt_render_dir", gt_exr_renders,
+        "--pandora_dir", renders_lin,
+        "--pandora_render_dir", lin_renders,
+        "--out_dir", args.input_dir,
+        "--name", args.metric_name
     ], check=True)

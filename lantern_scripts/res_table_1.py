@@ -92,11 +92,13 @@ def calculate_metrics(results_dataset_roots, gt_dataset_root, output_folder, dat
     si_mse = {}
     angular = {}
     psnr_error = {}
+    metrics = {}
     for key in dataset_names:
         mse[key] = []
         si_mse[key] = []
         angular[key] = []
         psnr_error[key] = []
+        metrics[key] = {}
 
     gt_dataset_files = sorted([os.path.join(gt_dataset_root, f) for f in os.listdir(gt_dataset_root) if f.endswith('.exr')])
 
@@ -121,6 +123,15 @@ def calculate_metrics(results_dataset_roots, gt_dataset_root, output_folder, dat
             scale_invariant_mse_result = si_wrmse(gt_dataset_img_exr, result_dataset_img_exr, mask)
             angular_result = angular_error(gt_dataset_img_exr, result_dataset_img_exr, mask)
             psnr_result = psnr(gt_dataset_img_exr_for_PSNR, result_dataset_img_exr_for_PSNR)
+            
+            key = gt_dataset_file.split('/')[-1]
+            metrics[dataset_name][key] = {
+                'mse': str(mse_result),
+                'si_rmse': str(scale_invariant_mse_result),
+                'angular': str(angular_result),
+                'psnr': str(psnr_result)
+            }
+            
             mse[dataset_name].append(mse_result)
             si_mse[dataset_name].append(scale_invariant_mse_result)
             angular[dataset_name].append(angular_result)
@@ -128,28 +139,22 @@ def calculate_metrics(results_dataset_roots, gt_dataset_root, output_folder, dat
             si_mse[dataset_name].append(scale_invariant_mse_result)
 
         mse[dataset_name] = remove_nan_and_sort(mse[dataset_name]) 
-
+        
         mse_ours = np.mean(mse[dataset_name])
         si_mse_ours = np.mean(si_mse[dataset_name])
         angular_ours = np.mean(angular[dataset_name])
         psnr_ours = np.mean(psnr_error[dataset_name])
+        
+        metrics[dataset_name]['mean'] = {
+            'mse': str(mse_ours),
+            'si_rmse': str(si_mse_ours),
+            'angular': str(angular_ours),
+            'psnr': str(psnr_ours)
+        }
 
-        # print(dataset_name + ', si_RMSE: {}'.format(si_mse_ours))
-        # print(dataset_name + ', RMSE: {}'.format(mse_ours))
-        # print(dataset_name + ', angular: {}'.format(angular_ours))
-        # print(dataset_name + ', PSNR: {}'.format(psnr_ours))
-
-        output_dict = {}
-        output_dict['model_name'] = dataset_name
-        output_dict['si_RMSE'] = str(si_mse_ours)
-        output_dict['RMSE'] = str(mse_ours)
-        output_dict['angular'] = str(angular_ours)
-        output_dict['PSNR'] = str(psnr_ours)
-
-        output_addr = output_folder + 'render_results.json'
-
+        output_addr = output_folder + dataset_name + '_results.json'
         with open(output_addr, 'w') as f:
-            json.dump(output_dict, f, indent=4)
+            json.dump(metrics, f, indent=4)
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
@@ -157,7 +162,6 @@ if __name__ == '__main__':
     argparser.add_argument("--gt_dataset_root", type=str, default="/mnt/data/coffee_room2/GT/GT_exr_renders/")
     argparser.add_argument("--output_folder", type=str, default="/mnt/data/coffee_room2/metrics/results_table/")
     argparser.add_argument("--dataset_names", type=str, default="/mnt/data/coffee_room2/metrics/results_table/")
-    
     args = argparser.parse_args()
 
     calculate_metrics(args.results_dataset_roots, args.gt_dataset_root, args.output_folder, args.dataset_names)

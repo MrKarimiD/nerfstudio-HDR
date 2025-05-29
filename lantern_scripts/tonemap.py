@@ -15,7 +15,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='/Volumes/Momo/Adobe_2023/Evaluation/test_sets/weber_test_set_original_hdr_panos/')
     parser.add_argument('--out_dir', type=str, default='/Users/momo/Desktop/camera_ready/FID_test_set_256x512/')
-    parser.add_argument("--resolution", type=int, default=256)
+    parser.add_argument('--do_resize', '-v', action='store_true', help='Enable verbose output')
+    parser.add_argument("--resolution", type=int, default=1024)
     args = parser.parse_args()
     
     test_images = []
@@ -37,6 +38,8 @@ if __name__ == "__main__":
         pano_file = os.path.basename(pano_addr)
         pano_file = pano_file.replace('.exr', '.png')
         gt_ldr_addr = os.path.join(args.out_dir, pano_file)
-        # Image.fromarray(gt_ldr).resize((2 * args.resolution, args.resolution), resample=Image.LANCZOS).save(gt_ldr_addr)
-        Image.fromarray(gt_ldr).save(gt_ldr_addr)
+        if args.do_resize:
+            Image.fromarray(gt_ldr).resize((2 * args.resolution, args.resolution), resample=Image.LANCZOS).save(gt_ldr_addr)
+        else:
+            Image.fromarray(gt_ldr).save(gt_ldr_addr)
 print("Done!")
