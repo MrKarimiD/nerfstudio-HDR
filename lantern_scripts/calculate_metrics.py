@@ -2,6 +2,8 @@ import subprocess
 import argparse
 import os
 import shutil
+import sys
+
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
@@ -20,16 +22,35 @@ if __name__ == '__main__':
 
     metrics_dir = os.path.join(args.input_dir, "metrics")
     renders_dir = os.path.join(metrics_dir, "images")
+    
     renders_well = os.path.join(renders_dir, args.metric_name)
+    if os.path.exists(renders_well):
+        shutil.rmtree(renders_well)
+    
     renders_fast = os.path.join(renders_dir, args.metric_name + "_fast")
+    if os.path.exists(renders_fast):
+        shutil.rmtree(renders_fast)
+    
     renders_lin = os.path.join(renders_dir, args.metric_name + "_lin")
+    if os.path.exists(renders_lin):
+        shutil.rmtree(renders_lin)
+    
     renders_lin_HDR = os.path.join(renders_dir, args.metric_name + "_lin_HDR")
+    if os.path.exists(renders_lin_HDR):
+        shutil.rmtree(renders_lin_HDR)
+    
     lin_renders = os.path.join(renders_dir, args.metric_name + "_lin_renders")
+    if os.path.exists(lin_renders):
+        shutil.rmtree(lin_renders)
 
     gt_dir = os.path.join(args.input_dir, "GT")
     gt_hdr = os.path.join(gt_dir, "GT_hdr")
+    if os.path.exists(gt_hdr):
+        shutil.rmtree(gt_hdr)
     gt_exr = os.path.join(gt_dir, "GT_exr")
     gt_exr_renders = os.path.join(gt_dir, "GT_exr_renders")
+    if os.path.exists(gt_exr_renders):
+        shutil.rmtree(gt_exr_renders)
 
     # 1. Get ground truth transformations:
     print("Running ns-process-data to get GT transformations...")

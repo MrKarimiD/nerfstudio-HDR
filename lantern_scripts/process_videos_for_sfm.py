@@ -18,3 +18,5 @@ if __name__ == '__main__':
     if args.gt:
         subprocess.run(["python", "lantern_scripts/debevec_bracket_merge.py", "--data_dir", args.input_dir + "GT/", "--experiment_location", args.input_dir + "data/"], check=True)
         subprocess.run(["python", "lantern_scripts/create_GT_folder.py", "--input_dir", args.input_dir + "GT/"], check=True)
+    
+    subprocess.run(["python", "lantern_scripts/data_visualization.py", "--input_dir", args.input_dir + "data/"], check=True)

@@ -2,12 +2,16 @@ import os
 import shutil
 import re
 import argparse
+import subprocess
+from pathlib import Path
+
 
 def copy_files(input_dir):
     brackets = os.listdir(input_dir)
 
     target_exr = os.path.join(input_dir, "GT_exr")
     target_jpg = os.path.join(input_dir, "GT_jpg")
+    target_jpg_resize = os.path.join(input_dir, "GT_jpg_resize")
     os.makedirs(target_exr, exist_ok=True)
     os.makedirs(target_jpg, exist_ok=True)
 
@@ -36,6 +40,24 @@ def copy_files(input_dir):
                 shutil.copy2(source_file, destination_file)
                 print(f"Copied JPG: {source_file} -> {destination_file}")
 
+    # Run a simple command
+    print("Copying target_jpg to target_jpg_resize...")
+    result = subprocess.run(["cp", "-r", target_jpg, target_jpg_resize], capture_output=True, text=True)
+    print(result)
+
+    print("Resizing target_jpg_resize...")
+    result = subprocess.run(["find", target_jpg_resize, "-iname", "*.jpg", "-exec", "convert", "{}", "-verbose", "-resize", "3840x1920>", "{}", ";"], capture_output=True, text=True)
+    print(result)
+
+    gt_path = Path(input_dir)
+    sfm_path = os.path.join(gt_path.parent, 'sfm/images')
+    for file in os.listdir(target_jpg_resize):
+        source_file = os.path.join(target_jpg_resize, file)
+        destination_file = os.path.join(sfm_path, file)
+        shutil.copy2(source_file, destination_file)
+        print(f"Copied JPG: {source_file} -> {destination_file}")
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_dir', type=str, required=True,
@@ -43,3 +65,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     copy_files(args.input_dir)
+
+    
+

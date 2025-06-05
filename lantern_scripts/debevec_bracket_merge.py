@@ -64,6 +64,7 @@ if __name__ == "__main__":
     
     for data_dir in GT_directories:
         test_images = []
+        print("data_dir: ", data_dir)
         for path in Path(data_dir).rglob('*.JPG'):
             test_images.append(path)
 
