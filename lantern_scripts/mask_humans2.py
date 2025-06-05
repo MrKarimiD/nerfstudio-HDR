@@ -82,15 +82,23 @@ if __name__ == '__main__':
             image_np_rot = (original_image.data * 255).astype(np.uint8)
 
             if folder['mask_person']:
-                text_prompt = "person"
+                text_prompt = "person head torso arms legs feet shoes"
                 # 90 degrees rotat
                 # image_np_rot = original_image_np # np.rot90(original_image_np, k=folder['flip_k'])
                 masks, boxes, phrases, logits = model.predict(Image.fromarray(image_np_rot), text_prompt)
                 masks = masks.detach().cpu().numpy()
+                boxes = boxes.detach().cpu().numpy()
                 if masks.size != 0:
                     # masks = np.rot90(masks, k=-folder['flip_k'], axes=(1, 2))
+
+                    photographer_mask = np.zeros((masks.shape[1], masks.shape[2], 1), dtype=np.uint8)
+                    for i in range(boxes.shape[0]):
+                        color = (255, 255, 255)   # White color in BGR
+                        cv2.rectangle(photographer_mask, (int(boxes[i, 0]), int(boxes[i, 1])), (int(boxes[i, 2]), int(boxes[i, 3])), (255, 255, 255), cv2.FILLED)
+
                     
-                    mask_skylibs = EnvironmentMap(np.transpose(masks, (1, 2, 0)).astype(np.uint8), 'latlong')  
+                    # mask_skylibs = EnvironmentMap(np.transpose(masks, (1, 2, 0)).astype(np.uint8), 'latlong')  
+                    mask_skylibs = EnvironmentMap(photographer_mask, 'latlong')  
                     inv_dcm = rotation_matrix(azimuth=0, elevation=0, roll=-np.pi/2)
                     mask_skylibs.rotate(inv_dcm)
                     masks = mask_skylibs.data
