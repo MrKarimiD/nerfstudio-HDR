@@ -23,19 +23,19 @@ def Get_lantern_config():
     method_name="lantern-nerfacto",
     steps_per_eval_batch=500,
     steps_per_save=2000,
-    max_num_iterations=30000,
+    max_num_iterations=100000,
     mixed_precision=True,
     pipeline=VanillaPipelineConfig(
             datamanager=HDRVanillaDataManagerConfig(
             dataparser=NerfstudioDataParserConfig(),
-            train_num_rays_per_batch=8192,
+            train_num_rays_per_batch=16384,
             eval_num_rays_per_batch=8192,
-            # camera_optimizer=CameraOptimizerConfig(
-            #     mode="SO3xR3",
-            #     optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2),
-            #     scheduler=ExponentialDecaySchedulerConfig(lr_final=6e-6, max_steps=200000),
-            # ),
-            camera_optimizer=None,
+            camera_optimizer=CameraOptimizerConfig(
+                mode="SO3xR3",
+                optimizer=AdamOptimizerConfig(lr=6e-4, eps=1e-8, weight_decay=1e-2),
+                scheduler=ExponentialDecaySchedulerConfig(lr_final=6e-6, max_steps=200000),
+            ),
+            # camera_optimizer=None,
         ),
         model=LanternModelConfig(eval_num_rays_per_chunk=1 << 15),
     ),
@@ -52,7 +52,7 @@ def Get_lantern_config():
     viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
     vis="viewer",
     )
-
+    
 
 def Get_PanoHDR_Nerfacto_config():
     return TrainerConfig(
