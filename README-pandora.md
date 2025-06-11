@@ -12,8 +12,9 @@ cd /mnt/workspace/lantern/nerfstudio-HDR
 git clone https://github.com/MrKarimiD/nerfstudio-HDR.git
 conda activate nerfstudio-HDR
 export PYTHONPATH=$pwd:$PYTHONPATH
-pip install -e .
 pip install scikit-surgerycore pydub skylibs piq OpenEXR Imath equilib
+pip install -e .
+ns-install-cli
 
 pip install -U git+https://github.com/luca-medeiros/lang-segment-anything.git
 If lang-sam not installed, do the following...

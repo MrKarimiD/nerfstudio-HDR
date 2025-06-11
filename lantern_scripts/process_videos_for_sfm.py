@@ -1,5 +1,8 @@
 import subprocess
 import argparse
+import os
+import shutil
+
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
@@ -18,5 +21,34 @@ if __name__ == '__main__':
     if args.gt:
         subprocess.run(["python", "lantern_scripts/debevec_bracket_merge.py", "--data_dir", args.input_dir + "GT/", "--experiment_location", args.input_dir + "data/"], check=True)
         subprocess.run(["python", "lantern_scripts/create_GT_folder.py", "--input_dir", args.input_dir + "GT/"], check=True)
+
+        gt_dir = os.path.join(args.input_dir, "GT")
+        gt_exr = os.path.join(gt_dir, "GT_exr")
+        gt_exr_renders = os.path.join(gt_dir, "GT_exr_renders")
+
+        print("Rendering GT images with Blender...")
+        subprocess.run([
+            "blender", "--background", "lantern_scripts/scene_new.blend",
+            "-P", "lantern_scripts/hdr_blender.py", "--",
+            os.path.join(gt_exr, ""), os.path.join(gt_exr_renders, "")
+        ], check=True)
+
+        print("Converting EXR panos to LDR visualization...")
+        subprocess.run([
+        "python", "lantern_scripts/tonemap.py",
+        "--data_dir", gt_exr,
+        "--out_dir", gt_exr
+        ], check=True)
+        subprocess.run([
+            "python", "lantern_scripts/tonemap.py",
+            "--data_dir", gt_exr_renders,
+            "--out_dir", gt_exr_renders
+        ], check=True)
+        
+        subprocess.run(["python", "lantern_scripts/gt_visualization.py", 
+        "--gt_dir", gt_exr,
+        "--gt_render_dir", gt_exr_renders,
+        "--out_dir", args.input_dir
+        ], check=True)
     
     subprocess.run(["python", "lantern_scripts/data_visualization.py", "--input_dir", args.input_dir + "data/"], check=True)
