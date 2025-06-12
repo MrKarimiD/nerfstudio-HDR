@@ -1,10 +1,10 @@
 # Ours
 Dual_Cameras
 gt_test
+hdr-nerfacto-subset-out
+ablations_out
 ablations*
 renders*
-
-
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

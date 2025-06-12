@@ -37,11 +37,11 @@ from nerfstudio.engine.callbacks import (
 from nerfstudio.field_components.field_heads import FieldHeadNames
 from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.density_fields import HashMLPDensityField
-from nerfstudio.fields.nerfacto_field import NerfactoField
+from nerfstudio.hdr_nerfacto.hdr_nerf_field import HdrNerfactoField
+from nerfstudio.lantern.renderer import RGBRenderer_HDR
 from nerfstudio.model_components.losses import (
     MSELoss,
     distortion_loss,
-    interlevel_loss,
     orientation_loss,
     pred_normal_loss,
     scale_gradients_by_distance_squared,
@@ -63,10 +63,10 @@ from nerfstudio.utils import colormaps
 
 
 @dataclass
-class NerfactoModelConfig(ModelConfig):
+class HdrNerfactoModelConfig(ModelConfig):
     """Nerfacto Model Config"""
 
-    _target: Type = field(default_factory=lambda: NerfactoModel)
+    _target: Type = field(default_factory=lambda: HdrNerfactoModel)
     near_plane: float = 0.05
     """How far along the ray to start sampling."""
     far_plane: float = 1000.0
@@ -139,15 +139,22 @@ class NerfactoModelConfig(ModelConfig):
     appearance_embed_dim: int = 32
     """Dimension of the appearance embedding."""
 
+    # HDR-Nerfacto
+    unit_exposure_loss_mult: float = 0.5
+    unit_exposure_expected_value: float = 0.5
 
-class NerfactoModel(Model):
+    use_crf: bool = True
+    clip_before_accumulation: bool = False
+
+
+class HdrNerfactoModel(Model):
     """Nerfacto model
 
     Args:
         config: Nerfacto configuration to instantiate model
     """
 
-    config: NerfactoModelConfig
+    config: HdrNerfactoModelConfig
 
     def populate_modules(self):
         """Set the fields and modules."""
@@ -159,7 +166,7 @@ class NerfactoModel(Model):
             scene_contraction = SceneContraction(order=float("inf"))
 
         # Fields
-        self.field = NerfactoField(
+        self.field = HdrNerfactoField(
             self.scene_box.aabb,
             hidden_dim=self.config.hidden_dim,
             num_levels=self.config.num_levels,
@@ -175,6 +182,7 @@ class NerfactoModel(Model):
             use_average_appearance_embedding=self.config.use_average_appearance_embedding,
             appearance_embedding_dim=self.config.appearance_embed_dim,
             implementation=self.config.implementation,
+            use_crf=self.config.use_crf,
         )
 
         self.density_fns = []
@@ -231,6 +239,7 @@ class NerfactoModel(Model):
 
         # renderers
         self.renderer_rgb = RGBRenderer(background_color=self.config.background_color)
+        self.renderer_rgb_hdr = RGBRenderer_HDR(background_color=self.config.background_color)
         self.renderer_accumulation = AccumulationRenderer()
         self.renderer_depth = DepthRenderer()
         self.renderer_normals = NormalsRenderer()
@@ -240,6 +249,7 @@ class NerfactoModel(Model):
 
         # losses
         self.rgb_loss = MSELoss()
+        self.unit_exposure_loss = MSELoss()
 
         # metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0)
@@ -297,15 +307,35 @@ class NerfactoModel(Model):
         weights_list.append(weights)
         ray_samples_list.append(ray_samples)
 
-        rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
+        # HDR-Nerfacto
+        rgb_hdr = self.renderer_rgb_hdr(
+            rgb=field_outputs[FieldHeadNames.RGB_HDR], weights=weights
+        )
+        if self.config.clip_before_accumulation:
+            rgb_linear_clipped = self.renderer_rgb(
+                rgb=field_outputs[FieldHeadNames.RGB_LINEAR_CLIPPED], weights=weights
+            )
+        else:
+            # clipping only after accumulation (in the renderer)
+            rgb_linear_clipped = self.renderer_rgb(
+                rgb=field_outputs[FieldHeadNames.RGB_HDR], weights=weights
+            )
+
         depth = self.renderer_depth(weights=weights, ray_samples=ray_samples)
         accumulation = self.renderer_accumulation(weights=weights)
 
         outputs = {
-            "rgb": rgb,
             "accumulation": accumulation,
             "depth": depth,
+            "rgb_hdr": rgb_hdr,
+            "rgb_linear_clipped": rgb_linear_clipped,
         }
+        if self.config.use_crf:
+            rgb = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB], weights=weights)
+            rgb_fast = self.renderer_rgb(rgb=field_outputs[FieldHeadNames.RGB_FAST], weights=weights)
+            outputs["rgb"] = rgb
+            outputs["rgb_fast"] = rgb_fast
+            outputs['zero_radiance_crf'] = field_outputs[FieldHeadNames.ZERO_RADIANCE_CRF]
 
         if self.config.predict_normals:
             normals = self.renderer_normals(normals=field_outputs[FieldHeadNames.NORMALS], weights=weights)
@@ -337,7 +367,10 @@ class NerfactoModel(Model):
         metrics_dict = {}
         gt_rgb = batch["image"].to(self.device)  # RGB or RGBA image
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb)  # Blend if RGBA
-        predicted_rgb = outputs["rgb"]
+        if self.config.use_crf:
+            predicted_rgb = outputs["rgb"]
+        else:
+            predicted_rgb = outputs["rgb_hdr"]
         metrics_dict["psnr"] = self.psnr(predicted_rgb, gt_rgb)
 
         if self.training:
@@ -347,36 +380,52 @@ class NerfactoModel(Model):
     def get_loss_dict(self, outputs, batch, metrics_dict=None):
         loss_dict = {}
         image = batch["image"].to(self.device)
-        pred_rgb, gt_rgb = self.renderer_rgb.blend_background_for_loss_computation(
-            pred_image=outputs["rgb"],
-            pred_accumulation=outputs["accumulation"],
-            gt_image=image,
-        )
+        
+        if self.config.use_crf:
+            pred_rgb, gt_rgb = self.renderer_rgb.blend_background_for_loss_computation(
+                pred_image=outputs["rgb"],
+                pred_accumulation=outputs["accumulation"],
+                gt_image=image,
+            )
+            loss_dict["unit_exposure_loss"] = self.config.unit_exposure_loss_mult * self.unit_exposure_loss(
+                outputs["zero_radiance_crf"], torch.ones_like(outputs["zero_radiance_crf"], requires_grad=False) * self.config.unit_exposure_expected_value
+            )
+        else:
+            pred_rgb, gt_rgb = self.renderer_rgb.blend_background_for_loss_computation(
+                pred_image=outputs["rgb_linear_clipped"],
+                pred_accumulation=outputs["accumulation"],
+                gt_image=image,
+            )
 
         loss_dict["rgb_loss"] = self.rgb_loss(gt_rgb, pred_rgb)
-        if self.training:
-            loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
-                outputs["weights_list"], outputs["ray_samples_list"]
-            )
-            assert metrics_dict is not None and "distortion" in metrics_dict
-            loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
-            if self.config.predict_normals:
-                # orientation loss for computed normals
-                loss_dict["orientation_loss"] = self.config.orientation_loss_mult * torch.mean(
-                    outputs["rendered_orientation_loss"]
-                )
 
-                # ground truth supervision for normals
-                loss_dict["pred_normal_loss"] = self.config.pred_normal_loss_mult * torch.mean(
-                    outputs["rendered_pred_normal_loss"]
-                )
+        # TODO: check that
+        # if self.training:
+        #     loss_dict["interlevel_loss"] = self.config.interlevel_loss_mult * interlevel_loss(
+        #         outputs["weights_list"], outputs["ray_samples_list"]
+        #     )
+        #     assert metrics_dict is not None and "distortion" in metrics_dict
+        #     loss_dict["distortion_loss"] = self.config.distortion_loss_mult * metrics_dict["distortion"]
+        #     if self.config.predict_normals:
+        #         # orientation loss for computed normals
+        #         loss_dict["orientation_loss"] = self.config.orientation_loss_mult * torch.mean(
+        #             outputs["rendered_orientation_loss"]
+        #         )
+# 
+        #         # ground truth supervision for normals
+        #         loss_dict["pred_normal_loss"] = self.config.pred_normal_loss_mult * torch.mean(
+        #             outputs["rendered_pred_normal_loss"]
+        #         )
         return loss_dict
 
     def get_image_metrics_and_images(
         self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
     ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
         gt_rgb = batch["image"].to(self.device)
-        predicted_rgb = outputs["rgb"]  # Blended with background (black if random background)
+        if self.config.use_crf:
+            predicted_rgb = outputs["rgb"]
+        else:
+            predicted_rgb = outputs["rgb_linear_clipped"]
         gt_rgb = self.renderer_rgb.blend_background(gt_rgb)
         acc = colormaps.apply_colormap(outputs["accumulation"])
         depth = colormaps.apply_depth_colormap(
@@ -384,8 +433,7 @@ class NerfactoModel(Model):
             accumulation=outputs["accumulation"],
         )
 
-        combined_rgb = torch.cat([gt_rgb, predicted_rgb], dim=1)
-        # combined_rgb = predicted_rgb # for simple output without GT
+        combined_rgb = predicted_rgb
         combined_acc = torch.cat([acc], dim=1)
         combined_depth = torch.cat([depth], dim=1)
 

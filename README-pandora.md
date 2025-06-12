@@ -2,6 +2,9 @@
 
 ## 0. Setup
 
+
+Open this folder in VS Code Dev Container extension!
+
 ```
 tmux new -s nerf_studio
 

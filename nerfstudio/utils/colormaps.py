@@ -43,6 +43,11 @@ class ColormapOptions:
     """ Whether to invert the output colormap """
     exposure_scale: float = 0
     """Scale the brightness prior to tonemapping by 2 ^ Exposure"""
+    use_mu_law: bool = False
+    """Use mu-law de-compression for HDR images"""
+    use_gamma: bool = False
+    """Use gamma for HDR images"""
+
 
 def apply_colormap(
     image: Float[Tensor, "*bs channels"],

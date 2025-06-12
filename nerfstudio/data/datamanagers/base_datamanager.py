@@ -54,7 +54,6 @@ from nerfstudio.configs.dataparser_configs import AnnotatedDataParserUnion
 from nerfstudio.data.dataparsers.base_dataparser import DataparserOutputs
 from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConfig
 from nerfstudio.data.datasets.base_dataset import InputDataset
-from nerfstudio.data.datasets.hdr_dataset import HDRInputDataset
 
 from nerfstudio.data.pixel_samplers import (
     PixelSampler,

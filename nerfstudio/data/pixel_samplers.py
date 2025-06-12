@@ -120,8 +120,7 @@ class PixelSampler:
                 del indice_this_disk
         
         return indices, nonzero_indices_whole
-        
-        
+    
     @profiler.time_function
     def sample_method(
         self,
@@ -269,7 +268,6 @@ class PixelSampler:
         collated_batch = {
             key: value[chan, y, x] for key, value in batch.items() if key != "image_idx" and key != "exposure" and key != "image_filename" and value is not None
         }
-
         assert collated_batch["image"].shape[0] == num_rays_per_batch
 
         # Needed to correct the random indices to their actual camera idx locations.

@@ -79,8 +79,8 @@ class ControlPanel:
         self._exposure = ViewerSlider(
             "Exposure scale", 
             default_value=0.0,
-            min_value=-10.0,
-            max_value=10.0,
+            min_value=-20.0,
+            max_value=20.0,
             step=0.1,
             cb_hook=rerender_cb, 
             hint="Scale the brightness prior to tonemapping by 2 ^ Exposure"
@@ -224,7 +224,7 @@ class ControlPanel:
         Sets elements to be hidden or not based on the current state of the control panel
         """
         self._colormap.set_disabled(self.output_render == "rgb")
-        self._exposure.set_disabled(self.output_render != "rgb")
+        self._exposure.set_disabled(self.output_render not in ["rgb", "rgb_hdr"])
         for e in self._elements_by_tag["colormap"]:
             e.set_hidden(self.output_render == "rgb")
         for e in self._elements_by_tag["split_colormap"]:

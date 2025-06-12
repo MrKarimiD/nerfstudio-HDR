@@ -16,18 +16,17 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Optional, Type
-import os
+
 os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
 
 
+import cv2
 import numpy as np
 import torch
-from PIL import Image
-import cv2
-
 
 from nerfstudio.cameras import camera_utils
 from nerfstudio.cameras.cameras import CAMERA_MODEL_TO_TYPE, Cameras, CameraType
