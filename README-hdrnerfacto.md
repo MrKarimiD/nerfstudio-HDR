@@ -153,7 +153,7 @@ ns-process-data images --data /mnt/data/garden/images --output-dir /mnt/data/gar
 1. Run hdr-nerfacto.
 
     ```
-    ns-train hdr-nerfacto --data /mnt/data/nerfstudio_ds/real_data/amphitheatre_1112_2/amphitheatre_ns/ --viewer.websocket-port 8008 --pipeline.datamanager.train-num-images-to-sample-from 1800  --max-num-iterations 60000 --viewer.websocket-port 8008
+    ns-train hdr-nerfacto --data /mnt/data/nerfstudio_ds/real_data/amphitheatre_1112_2/amphitheatre_ns/ --viewer.websocket-port 8008 --pipeline.datamanager.train-num-images-to-sample-from 1800  --max-num-iterations 120000 --viewer.websocket-port 8008
     ```
 
 
