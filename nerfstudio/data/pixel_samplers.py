@@ -50,7 +50,7 @@ class PixelSamplerConfig(InstantiateConfig):
     is_equirectangular: bool = False
     """List of whether or not camera i is equirectangular."""
 
-    lantern_steps: int = 1
+    lantern_steps: int = -1
     """  Define which steps of lantern is going on!! """
 
 
@@ -369,7 +369,7 @@ class PixelSampler:
                 image_batch, self.num_rays_per_batch, keep_full_image=self.config.keep_full_image
             )
         elif isinstance(image_batch["image"], torch.Tensor):
-            if "exposure" in image_batch:
+            if "exposure" in image_batch and self.config.lantern_steps != -1:
                 if not(self.well_image_batch and self.fast_image_batch):
                     well_ones = (image_batch["exposure"] == 1.0).cpu()
                     fast_ones = ~well_ones
